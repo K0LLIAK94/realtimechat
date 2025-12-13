@@ -7,10 +7,6 @@ let currentChatId = null;
 let currentUserEmail = null;
 let ws = null;
 
-const authDiv = document.getElementById("auth");
-const chatsDiv = document.getElementById("chats");
-const messagesDiv = document.getElementById("messages");
-
 // ==============================
 // Вспомогательные функции
 // ==============================
@@ -50,15 +46,30 @@ function formatTime(timestamp) {
   });
 }
 
+function getElement(id) {
+  const el = document.getElementById(id);
+  if (!el) {
+    console.error(`Element with id "${id}" not found`);
+  }
+  return el;
+}
+
 // ==============================
 // AUTH
 // ==============================
 async function login() {
-  const emailVal = document.getElementById("email").value.trim();
-  const passwordVal = document.getElementById("password").value.trim();
+  const emailInput = getElement("email");
+  const passwordInput = getElement("password");
+  const errorDiv = getElement("auth-error");
+  
+  if (!emailInput || !passwordInput || !errorDiv) return;
+
+  const emailVal = emailInput.value.trim();
+  const passwordVal = passwordInput.value.trim();
 
   if (!emailVal || !passwordVal) {
-    document.getElementById("auth-error").innerText = "Введите email и пароль";
+    errorDiv.innerText = "Введите email и пароль";
+    errorDiv.style.color = "#e74c3c";
     return;
   }
 
@@ -71,7 +82,15 @@ async function login() {
     const data = await res.json();
 
     if (!res.ok) {
-      document.getElementById("auth-error").innerText = data.message || "Ошибка входа";
+      // Улучшенные сообщения об ошибках
+      if (res.status === 401) {
+        errorDiv.innerText = "Неверный email или пароль";
+      } else if (data.message === "Validation error") {
+        errorDiv.innerText = "Проверьте правильность введённых данных";
+      } else {
+        errorDiv.innerText = data.message || "Ошибка входа";
+      }
+      errorDiv.style.color = "#e74c3c";
       return;
     }
 
@@ -79,30 +98,41 @@ async function login() {
     currentUserEmail = emailVal;
     localStorage.setItem("token", token);
     localStorage.setItem("userEmail", emailVal);
-    document.getElementById("auth-error").innerText = "";
+    errorDiv.innerText = "";
     showChats();
 
   } catch (err) {
     console.error(err);
+    errorDiv.innerText = "Ошибка подключения к серверу";
+    errorDiv.style.color = "#e74c3c";
   }
 }
 
 async function register() {
-  const emailVal = document.getElementById("email").value.trim();
-  const passwordVal = document.getElementById("password").value.trim();
+  const emailInput = getElement("email");
+  const passwordInput = getElement("password");
+  const errorDiv = getElement("auth-error");
+  
+  if (!emailInput || !passwordInput || !errorDiv) return;
+
+  const emailVal = emailInput.value.trim();
+  const passwordVal = passwordInput.value.trim();
 
   if (!emailVal || !passwordVal) {
-    document.getElementById("auth-error").innerText = "Введите email и пароль";
+    errorDiv.innerText = "Введите email и пароль";
+    errorDiv.style.color = "#e74c3c";
     return;
   }
 
   if (!isValidEmail(emailVal)) {
-    document.getElementById("auth-error").innerText = "Введите корректный email";
+    errorDiv.innerText = "Введите корректный email";
+    errorDiv.style.color = "#e74c3c";
     return;
   }
 
   if (passwordVal.length < 6) {
-    document.getElementById("auth-error").innerText = "Пароль минимум 6 символов";
+    errorDiv.innerText = "Пароль минимум 6 символов";
+    errorDiv.style.color = "#e74c3c";
     return;
   }
 
@@ -115,15 +145,19 @@ async function register() {
     const data = await res.json();
 
     if (!res.ok) {
-      document.getElementById("auth-error").innerText = data.message || "Ошибка регистрации";
+      errorDiv.innerText = data.message || "Ошибка регистрации";
+      errorDiv.style.color = "#e74c3c";
       return;
     }
 
-    alert("Пользователь создан, теперь войди");
-    document.getElementById("auth-error").innerText = "";
+    errorDiv.innerText = "✓ Регистрация успешна! Теперь войдите";
+    errorDiv.style.color = "#27ae60";
+    passwordInput.value = "";
 
   } catch (err) {
     console.error(err);
+    errorDiv.innerText = "Ошибка подключения к серверу";
+    errorDiv.style.color = "#e74c3c";
   }
 }
 
@@ -131,6 +165,12 @@ async function register() {
 // Чаты
 // ==============================
 async function showChats() {
+  const authDiv = getElement("auth");
+  const chatsDiv = getElement("chats");
+  const messagesDiv = getElement("messages");
+  
+  if (!authDiv || !chatsDiv || !messagesDiv) return;
+
   authDiv.classList.add("hidden");
   chatsDiv.classList.remove("hidden");
   messagesDiv.classList.add("hidden");
@@ -142,7 +182,9 @@ async function showChats() {
     });
     const chats = await res.json();
 
-    const list = document.getElementById("chat-list");
+    const list = getElement("chat-list");
+    if (!list) return;
+    
     list.innerHTML = "";
 
     if (chats.length === 0) {
@@ -162,8 +204,14 @@ async function showChats() {
 }
 
 async function createChat() {
-  const name = document.getElementById("chat-name").value.trim();
-  if (!name) return;
+  const nameInput = getElement("chat-name");
+  if (!nameInput) return;
+
+  const name = nameInput.value.trim();
+  if (!name) {
+    alert("Введите название чата");
+    return;
+  }
 
   try {
     const res = await fetch(`${API}/api/chats`, {
@@ -181,11 +229,12 @@ async function createChat() {
       return;
     }
 
-    document.getElementById("chat-name").value = "";
-    showChats();
+    nameInput.value = "";
+    await showChats(); // Обновляем список чатов
 
   } catch (err) {
     console.error(err);
+    alert("Ошибка подключения к серверу");
   }
 }
 
@@ -195,9 +244,15 @@ async function createChat() {
 async function openChat(chat) {
   currentChatId = chat.id;
 
+  const chatsDiv = getElement("chats");
+  const messagesDiv = getElement("messages");
+  const chatTitle = getElement("chat-title");
+  
+  if (!chatsDiv || !messagesDiv || !chatTitle) return;
+
   chatsDiv.classList.add("hidden");
   messagesDiv.classList.remove("hidden");
-  document.getElementById("chat-title").innerText = chat.name;
+  chatTitle.innerText = chat.name;
 
   try {
     const res = await fetch(`${API}/api/chats/${chat.id}/messages`, {
@@ -245,7 +300,10 @@ function initWebSocket() {
 }
 
 async function sendMessage() {
-  const text = document.getElementById("message-text").value.trim();
+  const textInput = getElement("message-text");
+  if (!textInput) return;
+
+  const text = textInput.value.trim();
   if (!text) return;
 
   try {
@@ -264,7 +322,7 @@ async function sendMessage() {
       return;
     }
 
-    document.getElementById("message-text").value = "";
+    textInput.value = "";
 
   } catch (err) {
     console.error(err);
@@ -272,7 +330,9 @@ async function sendMessage() {
 }
 
 function renderMessages(messages) {
-  const list = document.getElementById("message-list");
+  const list = getElement("message-list");
+  if (!list) return;
+  
   list.innerHTML = "";
   
   if (messages.length === 0) {
@@ -284,7 +344,8 @@ function renderMessages(messages) {
 }
 
 function addMessage(msg) {
-  const list = document.getElementById("message-list");
+  const list = getElement("message-list");
+  if (!list) return;
   
   const div = document.createElement("div");
   div.className = "message-item";
@@ -318,10 +379,16 @@ function addMessage(msg) {
 // Выход из чата
 // ==============================
 function leaveChat() {
+  const messagesDiv = getElement("messages");
+  const chatsDiv = getElement("chats");
+  const messageList = getElement("message-list");
+  
+  if (!messagesDiv || !chatsDiv || !messageList) return;
+
   messagesDiv.classList.add("hidden");
   chatsDiv.classList.remove("hidden");
   currentChatId = null;
-  document.getElementById("message-list").innerHTML = "";
+  messageList.innerHTML = "";
   
   if (ws) {
     ws.close();
@@ -330,33 +397,45 @@ function leaveChat() {
 }
 
 // ==============================
-// Обработка Enter для отправки
+// Инициализация после загрузки DOM
 // ==============================
-document.getElementById("message-text").addEventListener("keypress", (e) => {
-  if (e.key === "Enter") {
-    sendMessage();
+document.addEventListener("DOMContentLoaded", () => {
+  // Проверяем токен
+  if (token) {
+    currentUserEmail = localStorage.getItem("userEmail");
+    showChats();
+  }
+
+  // Слушатели кнопок
+  const loginBtn = getElement("login-btn");
+  const registerBtn = getElement("register-btn");
+  const chatCreateBtn = getElement("chat-create-btn");
+  const sendMessageBtn = getElement("send-message-btn");
+  const leaveChatBtn = getElement("leave-chat-btn");
+
+  if (loginBtn) loginBtn.addEventListener("click", login);
+  if (registerBtn) registerBtn.addEventListener("click", register);
+  if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
+  if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
+  if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
+
+  // Enter для отправки сообщения
+  const messageText = getElement("message-text");
+  if (messageText) {
+    messageText.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        sendMessage();
+      }
+    });
+  }
+
+  // Enter для создания чата
+  const chatName = getElement("chat-name");
+  if (chatName) {
+    chatName.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        createChat();
+      }
+    });
   }
 });
-
-document.getElementById("chat-name").addEventListener("keypress", (e) => {
-  if (e.key === "Enter") {
-    createChat();
-  }
-});
-
-// ==============================
-// Инициализация
-// ==============================
-if (token) {
-  currentUserEmail = localStorage.getItem("userEmail");
-  showChats();
-}
-
-// ==============================
-// Слушатели
-// ==============================
-document.getElementById("login-btn").addEventListener("click", login);
-document.getElementById("register-btn").addEventListener("click", register);
-document.getElementById("chat-create-btn").addEventListener("click", createChat);
-document.getElementById("send-message-btn").addEventListener("click", sendMessage);
-document.getElementById("leave-chat-btn").addEventListener("click", leaveChat);

@@ -1,22 +1,26 @@
 import { db } from "../config/db.js";
 
-export const createChat = (name, userId) => {
+export const createChat = (name, description, userId) => {
   return db.run(
-    "INSERT INTO chats (name, user_id) VALUES (?, ?)",
-    [name, userId]
+    "INSERT INTO chats (name, description, user_id) VALUES (?, ?, ?)",
+    [name, description || "", userId]
   );
 };
 
-export const getUserChats = (userId) => {
+// Получить ВСЕ чаты (публичные для всех)
+export const getAllChats = () => {
   return db.all(
-    "SELECT * FROM chats WHERE user_id = ?",
-    [userId]
+    `SELECT chats.*, users.email as creator_email 
+     FROM chats 
+     JOIN users ON users.id = chats.user_id
+     ORDER BY chats.created_at DESC`
   );
 };
 
-export const deleteChat = (chatId, userId) => {
+// Удалить чат (только админ)
+export const deleteChat = (chatId) => {
   return db.run(
-    "DELETE FROM chats WHERE id = ? AND user_id = ?",
-    [chatId, userId]
+    "DELETE FROM chats WHERE id = ?",
+    [chatId]
   );
 };

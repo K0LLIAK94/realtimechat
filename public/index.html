@@ -11,8 +11,8 @@
     <!-- Авторизация -->
     <div id="auth">
       <h2>Вход / Регистрация</h2>
-      <input id="email" type="email" placeholder="Email">
-      <input id="password" type="password" placeholder="Пароль">
+      <input id="email" type="email" placeholder="Email" autocomplete="email">
+      <input id="password" type="password" placeholder="Пароль" autocomplete="current-password">
       <div>
         <button id="login-btn">Войти</button>
         <button id="register-btn">Регистрация</button>
@@ -25,7 +25,7 @@
       <div class="chat-header">
         <h2>Чаты</h2>
         <div class="chat-create">
-          <input id="chat-name" type="text" placeholder="Название чата">
+          <input id="chat-name" type="text" placeholder="Название чата" autocomplete="off">
           <button id="chat-create-btn">Создать</button>
         </div>
       </div>
@@ -40,7 +40,7 @@
       </div>
       <div id="message-list"></div>
       <div class="message-input">
-        <input id="message-text" type="text" placeholder="Введите сообщение...">
+        <input id="message-text" type="text" placeholder="Введите сообщение..." autocomplete="off">
         <button id="send-message-btn">Отправить</button>
       </div>
     </div>

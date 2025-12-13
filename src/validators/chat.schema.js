@@ -1,5 +1,6 @@
 import Joi from "joi";
 
 export const chatSchema = Joi.object({
-  name: Joi.string().min(1).required()
+  name: Joi.string().min(1).required(),
+  description: Joi.string().allow("").optional()
 });
