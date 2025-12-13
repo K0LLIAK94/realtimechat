@@ -16,33 +16,36 @@ function isValidEmail(email) {
 
 function formatTime(timestamp) {
   if (!timestamp) return "";
-  
+
   const date = new Date(timestamp);
   const now = new Date();
   const diff = now - date;
-  
+
   // Если сегодня - показываем только время
   if (diff < 86400000 && date.getDate() === now.getDate()) {
-    return date.toLocaleTimeString('ru-RU', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   }
-  
+
   // Если вчера
   if (diff < 172800000 && date.getDate() === now.getDate() - 1) {
-    return 'Вчера ' + date.toLocaleTimeString('ru-RU', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
+    return (
+      "Вчера " +
+      date.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    );
   }
-  
+
   // Иначе показываем дату и время
-  return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -61,7 +64,7 @@ async function login() {
   const emailInput = getElement("email");
   const passwordInput = getElement("password");
   const errorDiv = getElement("auth-error");
-  
+
   if (!emailInput || !passwordInput || !errorDiv) return;
 
   const emailVal = emailInput.value.trim();
@@ -77,7 +80,7 @@ async function login() {
     const res = await fetch(`${API}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: emailVal, password: passwordVal })
+      body: JSON.stringify({ email: emailVal, password: passwordVal }),
     });
     const data = await res.json();
 
@@ -96,11 +99,12 @@ async function login() {
 
     token = data.token;
     currentUserEmail = emailVal;
+
     localStorage.setItem("token", token);
     localStorage.setItem("userEmail", emailVal);
+    localStorage.setItem("userRole", data.user.role);
     errorDiv.innerText = "";
     showChats();
-
   } catch (err) {
     console.error(err);
     errorDiv.innerText = "Ошибка подключения к серверу";
@@ -112,7 +116,7 @@ async function register() {
   const emailInput = getElement("email");
   const passwordInput = getElement("password");
   const errorDiv = getElement("auth-error");
-  
+
   if (!emailInput || !passwordInput || !errorDiv) return;
 
   const emailVal = emailInput.value.trim();
@@ -140,7 +144,7 @@ async function register() {
     const res = await fetch(`${API}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: emailVal, password: passwordVal })
+      body: JSON.stringify({ email: emailVal, password: passwordVal }),
     });
     const data = await res.json();
 
@@ -153,7 +157,6 @@ async function register() {
     errorDiv.innerText = "✓ Регистрация успешна! Теперь войдите";
     errorDiv.style.color = "#27ae60";
     passwordInput.value = "";
-
   } catch (err) {
     console.error(err);
     errorDiv.innerText = "Ошибка подключения к серверу";
@@ -168,7 +171,7 @@ async function showChats() {
   const authDiv = getElement("auth");
   const chatsDiv = getElement("chats");
   const messagesDiv = getElement("messages");
-  
+
   if (!authDiv || !chatsDiv || !messagesDiv) return;
 
   authDiv.classList.add("hidden");
@@ -178,21 +181,22 @@ async function showChats() {
 
   try {
     const res = await fetch(`${API}/api/chats`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
     const chats = await res.json();
 
     const list = getElement("chat-list");
     if (!list) return;
-    
+
     list.innerHTML = "";
 
     if (chats.length === 0) {
-      list.innerHTML = '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
+      list.innerHTML =
+        '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
       return;
     }
 
-    chats.forEach(chat => {
+    chats.forEach((chat) => {
       const li = document.createElement("li");
       li.innerText = chat.name;
       li.onclick = () => openChat(chat);
@@ -218,9 +222,9 @@ async function createChat() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name }),
     });
 
     if (!res.ok) {
@@ -231,7 +235,6 @@ async function createChat() {
 
     nameInput.value = "";
     await showChats(); // Обновляем список чатов
-
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -247,7 +250,7 @@ async function openChat(chat) {
   const chatsDiv = getElement("chats");
   const messagesDiv = getElement("messages");
   const chatTitle = getElement("chat-title");
-  
+
   if (!chatsDiv || !messagesDiv || !chatTitle) return;
 
   chatsDiv.classList.add("hidden");
@@ -256,13 +259,12 @@ async function openChat(chat) {
 
   try {
     const res = await fetch(`${API}/api/chats/${chat.id}/messages`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
     const messages = await res.json();
     renderMessages(messages);
 
     initWebSocket();
-
   } catch (err) {
     console.error(err);
   }
@@ -277,10 +279,12 @@ function initWebSocket() {
 
   ws.onopen = () => {
     console.log("✅ WS connected");
-    ws.send(JSON.stringify({ 
-      type: "JOIN_CHAT", 
-      chatId: currentChatId 
-    }));
+    ws.send(
+      JSON.stringify({
+        type: "JOIN_CHAT",
+        chatId: currentChatId,
+      })
+    );
   };
 
   ws.onmessage = (event) => {
@@ -311,9 +315,9 @@ async function sendMessage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text }),
     });
 
     if (!res.ok) {
@@ -323,7 +327,6 @@ async function sendMessage() {
     }
 
     textInput.value = "";
-
   } catch (err) {
     console.error(err);
   }
@@ -332,45 +335,46 @@ async function sendMessage() {
 function renderMessages(messages) {
   const list = getElement("message-list");
   if (!list) return;
-  
+
   list.innerHTML = "";
-  
+
   if (messages.length === 0) {
-    list.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
+    list.innerHTML =
+      '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
     return;
   }
-  
+
   messages.forEach(addMessage);
 }
 
 function addMessage(msg) {
   const list = getElement("message-list");
   if (!list) return;
-  
+
   const div = document.createElement("div");
   div.className = "message-item";
-  
+
   const headerInfo = document.createElement("div");
   headerInfo.className = "message-header-info";
-  
+
   const author = document.createElement("span");
   author.className = "message-author";
   author.innerText = msg.email || "Неизвестно";
-  
+
   const time = document.createElement("span");
   time.className = "message-time";
   time.innerText = formatTime(msg.created_at);
-  
+
   headerInfo.appendChild(author);
   headerInfo.appendChild(time);
-  
+
   const textDiv = document.createElement("div");
   textDiv.className = "message-text";
   textDiv.innerText = msg.text;
-  
+
   div.appendChild(headerInfo);
   div.appendChild(textDiv);
-  
+
   list.appendChild(div);
   list.scrollTop = list.scrollHeight;
 }
@@ -382,14 +386,14 @@ function leaveChat() {
   const messagesDiv = getElement("messages");
   const chatsDiv = getElement("chats");
   const messageList = getElement("message-list");
-  
+
   if (!messagesDiv || !chatsDiv || !messageList) return;
 
   messagesDiv.classList.add("hidden");
   chatsDiv.classList.remove("hidden");
   currentChatId = null;
   messageList.innerHTML = "";
-  
+
   if (ws) {
     ws.close();
     ws = null;
@@ -418,6 +422,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
   if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
   if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
+const role = localStorage.getItem("userRole");
+
+const chatNameInput = getElement("chat-name");
+
+
+if (role !== "admin") {
+  if (chatNameInput) chatNameInput.style.display = "none";
+  if (chatCreateBtn) chatCreateBtn.style.display = "none";
+}
 
   // Enter для отправки сообщения
   const messageText = getElement("message-text");
@@ -438,4 +451,5 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+  
 });
