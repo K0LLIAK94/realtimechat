@@ -102,7 +102,9 @@ async function login() {
 
     localStorage.setItem("token", token);
     localStorage.setItem("userEmail", emailVal);
-    localStorage.setItem("userRole", data.user.role);
+    if (data.user && data.user.role) {
+      localStorage.setItem("userRole", data.user.role);
+    }
     errorDiv.innerText = "";
     showChats();
   } catch (err) {
@@ -196,10 +198,31 @@ async function showChats() {
       return;
     }
 
+    const role = localStorage.getItem("userRole");
+
     chats.forEach((chat) => {
       const li = document.createElement("li");
-      li.innerText = chat.name;
-      li.onclick = () => openChat(chat);
+      li.className = "chat-item";
+      
+      const chatName = document.createElement("span");
+      chatName.className = "chat-name";
+      chatName.innerText = chat.name;
+      chatName.onclick = () => openChat(chat);
+      
+      li.appendChild(chatName);
+      
+      // Кнопка удаления только для админов
+      if (role === "admin") {
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-chat-btn";
+        deleteBtn.innerText = "✕";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteChat(chat.id);
+        };
+        li.appendChild(deleteBtn);
+      }
+      
       list.appendChild(li);
     });
   } catch (err) {
@@ -234,7 +257,33 @@ async function createChat() {
     }
 
     nameInput.value = "";
-    await showChats(); // Обновляем список чатов
+    await showChats();
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+async function deleteChat(chatId) {
+  if (!confirm("Вы уверены, что хотите удалить этот чат?")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/chats/${chatId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка удаления чата");
+      return;
+    }
+
+    await showChats();
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -291,6 +340,8 @@ function initWebSocket() {
     const data = JSON.parse(event.data);
     if (data.type === "NEW_MESSAGE") {
       addMessage(data.payload);
+    } else if (data.type === "DELETE_MESSAGE") {
+      removeMessageFromDOM(data.payload.messageId);
     }
   };
 
@@ -332,6 +383,39 @@ async function sendMessage() {
   }
 }
 
+async function deleteMessage(messageId) {
+  if (!confirm("Удалить это сообщение?")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/messages/${messageId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка удаления сообщения");
+      return;
+    }
+
+    // Сообщение удалится через WebSocket broadcast
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+function removeMessageFromDOM(messageId) {
+  const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (messageEl) {
+    messageEl.remove();
+  }
+}
+
 function renderMessages(messages) {
   const list = getElement("message-list");
   if (!list) return;
@@ -353,9 +437,15 @@ function addMessage(msg) {
 
   const div = document.createElement("div");
   div.className = "message-item";
+  div.setAttribute("data-message-id", msg.id);
 
   const headerInfo = document.createElement("div");
   headerInfo.className = "message-header-info";
+
+  const leftSection = document.createElement("div");
+  leftSection.style.display = "flex";
+  leftSection.style.alignItems = "center";
+  leftSection.style.gap = "8px";
 
   const author = document.createElement("span");
   author.className = "message-author";
@@ -365,8 +455,23 @@ function addMessage(msg) {
   time.className = "message-time";
   time.innerText = formatTime(msg.created_at);
 
-  headerInfo.appendChild(author);
-  headerInfo.appendChild(time);
+  leftSection.appendChild(author);
+  leftSection.appendChild(time);
+
+  headerInfo.appendChild(leftSection);
+
+  // Кнопка удаления только для админов
+  const role = localStorage.getItem("userRole");
+  if (role === "admin") {
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "delete-message-btn";
+    deleteBtn.innerText = "✕";
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteMessage(msg.id);
+    };
+    headerInfo.appendChild(deleteBtn);
+  }
 
   const textDiv = document.createElement("div");
   textDiv.className = "message-text";
@@ -422,15 +527,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
   if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
   if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
-const role = localStorage.getItem("userRole");
 
-const chatNameInput = getElement("chat-name");
+  const role = localStorage.getItem("userRole");
+  const chatNameInput = getElement("chat-name");
 
-
-if (role !== "admin") {
-  if (chatNameInput) chatNameInput.style.display = "none";
-  if (chatCreateBtn) chatCreateBtn.style.display = "none";
-}
+  // Скрываем создание чатов для не-админов
+  if (role !== "admin") {
+    if (chatNameInput) chatNameInput.style.display = "none";
+    if (chatCreateBtn) chatCreateBtn.style.display = "none";
+  }
 
   // Enter для отправки сообщения
   const messageText = getElement("message-text");
@@ -451,5 +556,4 @@ if (role !== "admin") {
       }
     });
   }
-  
 });

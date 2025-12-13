@@ -120,16 +120,53 @@ button:active {
 #chat-list li {
   padding: 16px 20px;
   border-bottom: 1px solid #e0e0e0;
-  cursor: pointer;
   transition: background 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 #chat-list li:hover {
   background: #f5f5f5;
 }
 
-#chat-list li:active {
-  background: #e0e0e0;
+.chat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.chat-name {
+  flex: 1;
+  cursor: pointer;
+}
+
+.delete-chat-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.delete-chat-btn:hover {
+  background: #c0392b;
+  transform: scale(1.1);
+}
+
+.delete-chat-btn:active {
+  transform: scale(0.95);
 }
 
 /* Messages Screen */
@@ -176,6 +213,12 @@ button:active {
   padding: 12px 16px;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  position: relative;
+  transition: all 0.2s;
+}
+
+.message-item:hover {
+  box-shadow: 0 3px 8px rgba(0,0,0,0.1);
 }
 
 .message-header-info {
@@ -194,6 +237,7 @@ button:active {
 .message-time {
   color: #999;
   font-size: 11px;
+  margin-left: 8px;
 }
 
 .message-text {
@@ -201,6 +245,35 @@ button:active {
   font-size: 14px;
   line-height: 1.4;
   word-wrap: break-word;
+}
+
+.delete-message-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.delete-message-btn:hover {
+  background: #c0392b;
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.delete-message-btn:active {
+  transform: scale(0.9);
 }
 
 .message-input {

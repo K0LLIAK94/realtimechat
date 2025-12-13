@@ -3,8 +3,7 @@ import {
   getChatMessages,
   getMessageById,
   updateMessage,
-  deleteMessage,
-  getUserEmail
+  deleteMessage
 } from "../services/message.service.js";
 
 /**
@@ -28,20 +27,18 @@ export const create = async (req, res) => {
     const { text } = req.body;
     const chatId = parseInt(req.params.chatId);
     const userId = req.user.id;
+    const userEmail = req.user.email;
 
     console.log(`💬 Creating message in chat ${chatId} by user ${userId}`);
 
     const result = await createMessage(text, chatId, userId);
-    
-    // ✅ Получаем email из базы
-    const user = await getUserEmail(userId);
 
     const message = {
       id: result.lastID,
       text,
       chat_id: chatId,
       user_id: userId,
-      email: user.email,  // ✅ Добавляем email
+      email: userEmail,
       created_at: new Date().toISOString()
     };
 
@@ -51,7 +48,7 @@ export const create = async (req, res) => {
     res.status(201).json(message);
     console.log(`📤 Response sent to HTTP client`);
 
-    // 🔥 WebSocket broadcast
+    // 🔥 WebSocket broadcast (после отправки HTTP ответа)
     const wss = req.app.get("wss");
     if (!wss) {
       console.warn("⚠️ WSS not found in app");
@@ -64,16 +61,16 @@ export const create = async (req, res) => {
 
     wss.clients.forEach((client) => {
       try {
-        // Отправляем только клиентам, которые в этом чате
         if (client.readyState === 1 && client.chatId === chatId) {
-          client.send(JSON.stringify({
+          const payload = JSON.stringify({
             type: "NEW_MESSAGE",
             payload: message
-          }));
+          });
+          client.send(payload);
           sentCount++;
         }
       } catch (broadcastErr) {
-        console.error("❌ Broadcast error:", broadcastErr);
+        console.error(`❌ Broadcast error:`, broadcastErr);
       }
     });
 
@@ -121,11 +118,34 @@ export const remove = async (req, res) => {
       return res.status(404).json({ message: "Message not found" });
     }
 
-    if (message.user_id !== req.user.id) {
+    // Проверяем права: владелец сообщения или админ
+    // Предполагается, что роль хранится в req.user.role (нужно добавить в JWT)
+    const isOwner = message.user_id === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
     await deleteMessage(req.params.id);
+
+    // WebSocket broadcast для удаления
+    const wss = req.app.get("wss");
+    if (wss) {
+      wss.clients.forEach((client) => {
+        try {
+          if (client.readyState === 1 && client.chatId === message.chat_id) {
+            client.send(JSON.stringify({
+              type: "DELETE_MESSAGE",
+              payload: { messageId: parseInt(req.params.id) }
+            }));
+          }
+        } catch (err) {
+          console.error("Broadcast delete error:", err);
+        }
+      });
+    }
+
     res.json({ message: "Message deleted" });
   } catch (err) {
     console.error("Error deleting message:", err);
