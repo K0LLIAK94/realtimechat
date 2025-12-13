@@ -1,40 +1,50 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chat App</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="container">
+    <!-- Авторизация -->
+    <div id="auth">
+      <h2>Вход / Регистрация</h2>
+      <input id="email" type="email" placeholder="Email">
+      <input id="password" type="password" placeholder="Пароль">
+      <div>
+        <button id="login-btn">Войти</button>
+        <button id="register-btn">Регистрация</button>
+      </div>
+      <div id="auth-error" class="error"></div>
+    </div>
 
-  <!-- AUTH -->
-  <!-- AUTH -->
-<div id="auth">
-  <h2>Вход / Регистрация</h2>
-  <input id="email" placeholder="Email" />
-  <input id="password" type="password" placeholder="Пароль" />
-  <button type="button" id="login-btn">Войти</button>
-  <button type="button" id="register-btn">Регистрация</button>
-  <p id="auth-error"></p>
-</div>
+    <!-- Список чатов -->
+    <div id="chats" class="hidden">
+      <div class="chat-header">
+        <h2>Чаты</h2>
+        <div class="chat-create">
+          <input id="chat-name" type="text" placeholder="Название чата">
+          <button id="chat-create-btn">Создать</button>
+        </div>
+      </div>
+      <ul id="chat-list"></ul>
+    </div>
 
-<!-- CHAT LIST -->
-<div id="chats" class="hidden">
-  <h2>Чаты</h2>
-  <input id="chat-name" placeholder="Название чата" />
-  <button type="button" id="chat-create-btn">Создать чат</button>
-  <ul id="chat-list"></ul>
-</div>
-
-<!-- MESSAGES -->
-<div id="messages" class="hidden">
-  <h2 id="chat-title"></h2>
-  <div id="message-list"></div>
-  <input id="message-text" placeholder="Сообщение" />
-  <button type="button" id="send-message-btn">Отправить</button>
-  <button type="button" id="leave-chat-btn">← Назад</button>
-</div>
-
+    <!-- Сообщения -->
+    <div id="messages" class="hidden">
+      <div class="message-header">
+        <h2 id="chat-title">Чат</h2>
+        <button id="leave-chat-btn">← Назад</button>
+      </div>
+      <div id="message-list"></div>
+      <div class="message-input">
+        <input id="message-text" type="text" placeholder="Введите сообщение...">
+        <button id="send-message-btn">Отправить</button>
+      </div>
+    </div>
+  </div>
 
   <script src="script.js"></script>
 </body>

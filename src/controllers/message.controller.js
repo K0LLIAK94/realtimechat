@@ -3,7 +3,8 @@ import {
   getChatMessages,
   getMessageById,
   updateMessage,
-  deleteMessage
+  deleteMessage,
+  getUserEmail
 } from "../services/message.service.js";
 
 /**
@@ -31,44 +32,58 @@ export const create = async (req, res) => {
     console.log(`💬 Creating message in chat ${chatId} by user ${userId}`);
 
     const result = await createMessage(text, chatId, userId);
+    
+    // ✅ Получаем email из базы
+    const user = await getUserEmail(userId);
 
     const message = {
       id: result.lastID,
       text,
       chat_id: chatId,
       user_id: userId,
+      email: user.email,  // ✅ Добавляем email
       created_at: new Date().toISOString()
     };
 
     console.log(`✅ Message created:`, message);
 
+    // Сначала отправляем ответ клиенту
+    res.status(201).json(message);
+    console.log(`📤 Response sent to HTTP client`);
+
     // 🔥 WebSocket broadcast
     const wss = req.app.get("wss");
-    if (wss) {
-      let sentCount = 0;
-      wss.clients.forEach(client => {
-        try {
-          // Отправляем только клиентам, которые в этом чате
-          if (client.readyState === 1 && client.chatId === chatId) {
-            client.send(JSON.stringify({
-              type: "NEW_MESSAGE",
-              payload: message
-            }));
-            sentCount++;
-          }
-        } catch (broadcastErr) {
-          console.error("❌ Broadcast error to client:", broadcastErr);
-        }
-      });
-      console.log(`📡 Broadcast sent to ${sentCount} client(s)`);
-    } else {
+    if (!wss) {
       console.warn("⚠️ WSS not found in app");
+      return;
     }
 
-    res.status(201).json(message);
+    console.log(`📡 Starting broadcast. Total WS clients:`, wss.clients.size);
+
+    let sentCount = 0;
+
+    wss.clients.forEach((client) => {
+      try {
+        // Отправляем только клиентам, которые в этом чате
+        if (client.readyState === 1 && client.chatId === chatId) {
+          client.send(JSON.stringify({
+            type: "NEW_MESSAGE",
+            payload: message
+          }));
+          sentCount++;
+        }
+      } catch (broadcastErr) {
+        console.error("❌ Broadcast error:", broadcastErr);
+      }
+    });
+
+    console.log(`✅ Broadcast complete: sent to ${sentCount} client(s)`);
+
   } catch (err) {
     console.error("❌ Error creating message:", err);
-    res.status(500).json({ message: "Error creating message" });
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Error creating message" });
+    }
   }
 };
 

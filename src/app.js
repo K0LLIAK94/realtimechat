@@ -7,15 +7,7 @@ import cors from "cors";
 
 import messageRoutes from "./routes/message.routes.js";
 
-
-
 import { notFound, errorHandler } from "./middlewares/error.middleware.js";
-
-
-
-
-
-
 
 dotenv.config();
 
@@ -24,14 +16,9 @@ app.use(cors()); // <--- разрешаем все домены
 
 app.use(express.json());
 app.use(express.static("public"));
-
-
 app.use("/auth", authRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api", messageRoutes);
-
-
-
 app.use(notFound);
 app.use(errorHandler);
 

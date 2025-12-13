@@ -4,6 +4,7 @@
 const API = "http://localhost:3000";
 let token = localStorage.getItem("token");
 let currentChatId = null;
+let currentUserEmail = null;
 let ws = null;
 
 const authDiv = document.getElementById("auth");
@@ -11,10 +12,42 @@ const chatsDiv = document.getElementById("chats");
 const messagesDiv = document.getElementById("messages");
 
 // ==============================
-// Проверка email
+// Вспомогательные функции
 // ==============================
 function isValidEmail(email) {
   return /\S+@\S+\.\S+/.test(email);
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return "";
+  
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now - date;
+  
+  // Если сегодня - показываем только время
+  if (diff < 86400000 && date.getDate() === now.getDate()) {
+    return date.toLocaleTimeString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  }
+  
+  // Если вчера
+  if (diff < 172800000 && date.getDate() === now.getDate() - 1) {
+    return 'Вчера ' + date.toLocaleTimeString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  }
+  
+  // Иначе показываем дату и время
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 // ==============================
@@ -43,7 +76,9 @@ async function login() {
     }
 
     token = data.token;
+    currentUserEmail = emailVal;
     localStorage.setItem("token", token);
+    localStorage.setItem("userEmail", emailVal);
     document.getElementById("auth-error").innerText = "";
     showChats();
 
@@ -110,6 +145,11 @@ async function showChats() {
     const list = document.getElementById("chat-list");
     list.innerHTML = "";
 
+    if (chats.length === 0) {
+      list.innerHTML = '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
+      return;
+    }
+
     chats.forEach(chat => {
       const li = document.createElement("li");
       li.innerText = chat.name;
@@ -166,7 +206,6 @@ async function openChat(chat) {
     const messages = await res.json();
     renderMessages(messages);
 
-    // Подключаем WS
     initWebSocket();
 
   } catch (err) {
@@ -175,7 +214,6 @@ async function openChat(chat) {
 }
 
 function initWebSocket() {
-  // Закрываем старое соединение, если есть
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.close();
   }
@@ -184,7 +222,6 @@ function initWebSocket() {
 
   ws.onopen = () => {
     console.log("✅ WS connected");
-    // Отправляем chatId серверу
     ws.send(JSON.stringify({ 
       type: "JOIN_CHAT", 
       chatId: currentChatId 
@@ -228,8 +265,6 @@ async function sendMessage() {
     }
 
     document.getElementById("message-text").value = "";
-    
-    // НЕ добавляем сообщение вручную - оно придёт через WebSocket
 
   } catch (err) {
     console.error(err);
@@ -239,13 +274,42 @@ async function sendMessage() {
 function renderMessages(messages) {
   const list = document.getElementById("message-list");
   list.innerHTML = "";
+  
+  if (messages.length === 0) {
+    list.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
+    return;
+  }
+  
   messages.forEach(addMessage);
 }
 
 function addMessage(msg) {
   const list = document.getElementById("message-list");
+  
   const div = document.createElement("div");
-  div.innerText = msg.text;
+  div.className = "message-item";
+  
+  const headerInfo = document.createElement("div");
+  headerInfo.className = "message-header-info";
+  
+  const author = document.createElement("span");
+  author.className = "message-author";
+  author.innerText = msg.email || "Неизвестно";
+  
+  const time = document.createElement("span");
+  time.className = "message-time";
+  time.innerText = formatTime(msg.created_at);
+  
+  headerInfo.appendChild(author);
+  headerInfo.appendChild(time);
+  
+  const textDiv = document.createElement("div");
+  textDiv.className = "message-text";
+  textDiv.innerText = msg.text;
+  
+  div.appendChild(headerInfo);
+  div.appendChild(textDiv);
+  
   list.appendChild(div);
   list.scrollTop = list.scrollHeight;
 }
@@ -259,7 +323,6 @@ function leaveChat() {
   currentChatId = null;
   document.getElementById("message-list").innerHTML = "";
   
-  // Закрываем WebSocket
   if (ws) {
     ws.close();
     ws = null;
@@ -267,9 +330,27 @@ function leaveChat() {
 }
 
 // ==============================
+// Обработка Enter для отправки
+// ==============================
+document.getElementById("message-text").addEventListener("keypress", (e) => {
+  if (e.key === "Enter") {
+    sendMessage();
+  }
+});
+
+document.getElementById("chat-name").addEventListener("keypress", (e) => {
+  if (e.key === "Enter") {
+    createChat();
+  }
+});
+
+// ==============================
 // Инициализация
 // ==============================
-if (token) showChats();
+if (token) {
+  currentUserEmail = localStorage.getItem("userEmail");
+  showChats();
+}
 
 // ==============================
 // Слушатели

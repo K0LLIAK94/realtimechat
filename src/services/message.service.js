@@ -11,7 +11,7 @@ export const createMessage = (text, chatId, userId) => {
 };
 
 /**
- * Получить сообщения чата
+ * Получить сообщения чата с email автора
  */
 export const getChatMessages = (chatId) => {
   return db.all(
@@ -25,10 +25,26 @@ export const getChatMessages = (chatId) => {
 };
 
 /**
- * Проверка владельца сообщения
+ * Получить сообщение по ID с email автора
  */
 export const getMessageById = (id) => {
-  return db.get("SELECT * FROM messages WHERE id = ?", [id]);
+  return db.get(
+    `SELECT messages.*, users.email 
+     FROM messages
+     JOIN users ON users.id = messages.user_id
+     WHERE messages.id = ?`,
+    [id]
+  );
+};
+
+/**
+ * Получить email пользователя по ID
+ */
+export const getUserEmail = (userId) => {
+  return db.get(
+    "SELECT email FROM users WHERE id = ?",
+    [userId]
+  );
 };
 
 /**
