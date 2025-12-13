@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat App</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- AUTH -->
+  <!-- AUTH -->
+<div id="auth">
+  <h2>Вход / Регистрация</h2>
+  <input id="email" placeholder="Email" />
+  <input id="password" type="password" placeholder="Пароль" />
+  <button type="button" id="login-btn">Войти</button>
+  <button type="button" id="register-btn">Регистрация</button>
+  <p id="auth-error"></p>
+</div>
+
+<!-- CHAT LIST -->
+<div id="chats" class="hidden">
+  <h2>Чаты</h2>
+  <input id="chat-name" placeholder="Название чата" />
+  <button type="button" id="chat-create-btn">Создать чат</button>
+  <ul id="chat-list"></ul>
+</div>
+
+<!-- MESSAGES -->
+<div id="messages" class="hidden">
+  <h2 id="chat-title"></h2>
+  <div id="message-list"></div>
+  <input id="message-text" placeholder="Сообщение" />
+  <button type="button" id="send-message-btn">Отправить</button>
+  <button type="button" id="leave-chat-btn">← Назад</button>
+</div>
+
+
+  <script src="script.js"></script>
+</body>
+</html>
