@@ -4,7 +4,7 @@
 const API = "http://localhost:3000";
 let token = localStorage.getItem("token");
 let currentChatId = null;
-let currentUserEmail = null;
+let currentUser = null; // { id, email, role }
 let ws = null;
 
 // ==============================
@@ -21,7 +21,6 @@ function formatTime(timestamp) {
   const now = new Date();
   const diff = now - date;
 
-  // Если сегодня - показываем только время
   if (diff < 86400000 && date.getDate() === now.getDate()) {
     return date.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
@@ -29,7 +28,6 @@ function formatTime(timestamp) {
     });
   }
 
-  // Если вчера
   if (diff < 172800000 && date.getDate() === now.getDate() - 1) {
     return (
       "Вчера " +
@@ -40,7 +38,6 @@ function formatTime(timestamp) {
     );
   }
 
-  // Иначе показываем дату и время
   return date.toLocaleString("ru-RU", {
     day: "2-digit",
     month: "2-digit",
@@ -85,7 +82,6 @@ async function login() {
     const data = await res.json();
 
     if (!res.ok) {
-      // Улучшенные сообщения об ошибках
       if (res.status === 401) {
         errorDiv.innerText = "Неверный email или пароль";
       } else if (data.message === "Validation error") {
@@ -98,11 +94,14 @@ async function login() {
     }
 
     token = data.token;
-    currentUserEmail = emailVal;
+    currentUser = {
+      id: data.user.id,
+      email: data.user.email,
+      role: data.user.role
+    };
 
     localStorage.setItem("token", token);
-    localStorage.setItem("userEmail", emailVal);
-    localStorage.setItem("userRole", data.user.role);
+    localStorage.setItem("user", JSON.stringify(currentUser));
     errorDiv.innerText = "";
     showChats();
   } catch (err) {
@@ -234,7 +233,7 @@ async function createChat() {
     }
 
     nameInput.value = "";
-    await showChats(); // Обновляем список чатов
+    await showChats();
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -242,7 +241,70 @@ async function createChat() {
 }
 
 // ==============================
-// Сообщения и WebSocket
+// WebSocket
+// ==============================
+function initWebSocket() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+
+  ws = new WebSocket("ws://localhost:3000");
+
+  ws.onopen = () => {
+    console.log("✅ WS connected");
+    
+    // Авторизация в WebSocket
+    ws.send(JSON.stringify({
+      type: "AUTH",
+      token: token
+    }));
+
+    // Подписка на текущий чат
+    if (currentChatId) {
+      ws.send(JSON.stringify({
+        type: "JOIN_CHAT",
+        chatId: currentChatId
+      }));
+    }
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    
+    switch (data.type) {
+      case "NEW_MESSAGE":
+        renderMessage(data.payload);
+        break;
+        
+      case "MESSAGE_DELETED":
+        markMessageDeleted(data.payload.id);
+        break;
+        
+      default:
+        console.log("Unknown WS event:", data.type);
+    }
+  };
+
+  ws.onclose = () => {
+    console.log("❌ WS disconnected");
+  };
+
+  ws.onerror = (err) => {
+    console.error("WS error:", err);
+  };
+}
+
+function joinChat(chatId) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "JOIN_CHAT",
+      chatId: chatId
+    }));
+  }
+}
+
+// ==============================
+// Сообщения
 // ==============================
 async function openChat(chat) {
   currentChatId = chat.id;
@@ -257,50 +319,101 @@ async function openChat(chat) {
   messagesDiv.classList.remove("hidden");
   chatTitle.innerText = chat.name;
 
+  await loadMessages(currentChatId);
+  initWebSocket();
+}
+
+async function loadMessages(chatId) {
   try {
-    const res = await fetch(`${API}/api/chats/${chat.id}/messages`, {
+    const res = await fetch(`${API}/api/chats/${chatId}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const messages = await res.json();
-    renderMessages(messages);
-
-    initWebSocket();
+    
+    const list = getElement("message-list");
+    if (!list) return;
+    
+    list.innerHTML = "";
+    
+    if (messages.length === 0) {
+      list.innerHTML =
+        '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
+      return;
+    }
+    
+    messages.forEach(renderMessage);
   } catch (err) {
     console.error(err);
   }
 }
 
-function initWebSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.close();
+function renderMessage(message) {
+  const list = getElement("message-list");
+  if (!list) return;
+
+  const div = document.createElement("div");
+  div.className = "message-item";
+  div.dataset.id = message.id;
+
+  if (message.deleted_at) {
+    div.classList.add("deleted");
   }
 
-  ws = new WebSocket("ws://localhost:3000");
+  const headerInfo = document.createElement("div");
+  headerInfo.className = "message-header-info";
 
-  ws.onopen = () => {
-    console.log("✅ WS connected");
-    ws.send(
-      JSON.stringify({
-        type: "JOIN_CHAT",
-        chatId: currentChatId,
-      })
-    );
-  };
+  const author = document.createElement("span");
+  author.className = "message-author";
+  author.innerText = message.email || "Неизвестно";
 
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === "NEW_MESSAGE") {
-      addMessage(data.payload);
-    }
-  };
+  const time = document.createElement("span");
+  time.className = "message-time";
+  time.innerText = formatTime(message.created_at);
 
-  ws.onclose = () => {
-    console.log("❌ WS disconnected");
-  };
+  headerInfo.appendChild(author);
+  headerInfo.appendChild(time);
 
-  ws.onerror = (err) => {
-    console.error("WS error:", err);
-  };
+  const textDiv = document.createElement("div");
+  textDiv.className = "message-text";
+  textDiv.innerText = message.deleted_at ? "Сообщение удалено" : message.text;
+
+  div.appendChild(headerInfo);
+  div.appendChild(textDiv);
+
+  // Добавляем кнопку удаления если есть права
+  if (canDeleteMessage(message)) {
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "delete-btn";
+    deleteBtn.dataset.id = message.id;
+    deleteBtn.innerText = "✖";
+    div.appendChild(deleteBtn);
+  }
+
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+
+function canDeleteMessage(message) {
+  if (!currentUser) return false;
+  if (currentUser.role === "admin") return true;
+  return message.user_id === currentUser.id && !message.deleted_at;
+}
+
+function markMessageDeleted(messageId) {
+  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  if (!msg) return;
+
+  msg.classList.add("deleted");
+  
+  const textEl = msg.querySelector(".message-text");
+  if (textEl) {
+    textEl.innerText = "Сообщение удалено";
+  }
+
+  const deleteBtn = msg.querySelector(".delete-btn");
+  if (deleteBtn) {
+    deleteBtn.remove();
+  }
 }
 
 async function sendMessage() {
@@ -332,51 +445,25 @@ async function sendMessage() {
   }
 }
 
-function renderMessages(messages) {
-  const list = getElement("message-list");
-  if (!list) return;
+// ==============================
+// Удаление сообщения
+// ==============================
+async function deleteMessage(messageId) {
+  try {
+    const res = await fetch(`${API}/api/messages/${messageId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
 
-  list.innerHTML = "";
-
-  if (messages.length === 0) {
-    list.innerHTML =
-      '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
-    return;
+    if (!res.ok) {
+      const data = await res.json();
+      console.error("Ошибка удаления:", data.message);
+    }
+  } catch (err) {
+    console.error(err);
   }
-
-  messages.forEach(addMessage);
-}
-
-function addMessage(msg) {
-  const list = getElement("message-list");
-  if (!list) return;
-
-  const div = document.createElement("div");
-  div.className = "message-item";
-
-  const headerInfo = document.createElement("div");
-  headerInfo.className = "message-header-info";
-
-  const author = document.createElement("span");
-  author.className = "message-author";
-  author.innerText = msg.email || "Неизвестно";
-
-  const time = document.createElement("span");
-  time.className = "message-time";
-  time.innerText = formatTime(msg.created_at);
-
-  headerInfo.appendChild(author);
-  headerInfo.appendChild(time);
-
-  const textDiv = document.createElement("div");
-  textDiv.className = "message-text";
-  textDiv.innerText = msg.text;
-
-  div.appendChild(headerInfo);
-  div.appendChild(textDiv);
-
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
 }
 
 // ==============================
@@ -404,10 +491,13 @@ function leaveChat() {
 // Инициализация после загрузки DOM
 // ==============================
 document.addEventListener("DOMContentLoaded", () => {
-  // Проверяем токен
+  // Проверяем токен и загружаем пользователя
   if (token) {
-    currentUserEmail = localStorage.getItem("userEmail");
-    showChats();
+    const userData = localStorage.getItem("user");
+    if (userData) {
+      currentUser = JSON.parse(userData);
+      showChats();
+    }
   }
 
   // Слушатели кнопок
@@ -422,15 +512,23 @@ document.addEventListener("DOMContentLoaded", () => {
   if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
   if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
   if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
-const role = localStorage.getItem("userRole");
 
-const chatNameInput = getElement("chat-name");
+  // Скрываем создание чата для не-админов
+  if (currentUser && currentUser.role !== "admin") {
+    const chatNameInput = getElement("chat-name");
+    if (chatNameInput) chatNameInput.style.display = "none";
+    if (chatCreateBtn) chatCreateBtn.style.display = "none";
+  }
 
-
-if (role !== "admin") {
-  if (chatNameInput) chatNameInput.style.display = "none";
-  if (chatCreateBtn) chatCreateBtn.style.display = "none";
-}
+  // Делегирование события для кнопок удаления
+  document.addEventListener("click", (e) => {
+    if (e.target.classList.contains("delete-btn")) {
+      const messageId = e.target.dataset.id;
+      if (messageId) {
+        deleteMessage(messageId);
+      }
+    }
+  });
 
   // Enter для отправки сообщения
   const messageText = getElement("message-text");
@@ -451,5 +549,4 @@ if (role !== "admin") {
       }
     });
   }
-  
 });

@@ -27,6 +27,8 @@ await db.exec(`
     text TEXT,
     chat_id INTEGER,
     user_id INTEGER,
+    deleted_at DATETIME,
+    deleted_by TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
