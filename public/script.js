@@ -195,10 +195,31 @@ async function showChats() {
       return;
     }
 
+    const role = localStorage.getItem("userRole");
+
     chats.forEach((chat) => {
       const li = document.createElement("li");
-      li.innerText = chat.name;
-      li.onclick = () => openChat(chat);
+      li.className = "chat-item";
+      
+      const chatName = document.createElement("span");
+      chatName.className = "chat-name";
+      chatName.innerText = chat.name;
+      chatName.onclick = () => openChat(chat);
+      
+      li.appendChild(chatName);
+      
+      // Кнопка удаления только для админов
+      if (role === "admin") {
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-chat-btn";
+        deleteBtn.innerText = "✕";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteChat(chat.id);
+        };
+        li.appendChild(deleteBtn);
+      }
+      
       list.appendChild(li);
     });
   } catch (err) {
@@ -233,7 +254,7 @@ async function createChat() {
     }
 
     nameInput.value = "";
-    await showChats();
+    await showChats(); // Обновляем список чатов
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -359,61 +380,32 @@ function renderMessage(message) {
     div.classList.add("deleted");
   }
 
-  const headerInfo = document.createElement("div");
-  headerInfo.className = "message-header-info";
+  ws = new WebSocket("ws://localhost:3000");
 
-  const author = document.createElement("span");
-  author.className = "message-author";
-  author.innerText = message.email || "Неизвестно";
+  ws.onopen = () => {
+    console.log("✅ WS connected");
+    ws.send(
+      JSON.stringify({
+        type: "JOIN_CHAT",
+        chatId: currentChatId,
+      })
+    );
+  };
 
-  const time = document.createElement("span");
-  time.className = "message-time";
-  time.innerText = formatTime(message.created_at);
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === "NEW_MESSAGE") {
+      addMessage(data.payload);
+    }
+  };
 
-  headerInfo.appendChild(author);
-  headerInfo.appendChild(time);
+  ws.onclose = () => {
+    console.log("❌ WS disconnected");
+  };
 
-  const textDiv = document.createElement("div");
-  textDiv.className = "message-text";
-  textDiv.innerText = message.deleted_at ? "Сообщение удалено" : message.text;
-
-  div.appendChild(headerInfo);
-  div.appendChild(textDiv);
-
-  // Добавляем кнопку удаления если есть права
-  if (canDeleteMessage(message)) {
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "delete-btn";
-    deleteBtn.dataset.id = message.id;
-    deleteBtn.innerText = "✖";
-    div.appendChild(deleteBtn);
-  }
-
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
-}
-
-function canDeleteMessage(message) {
-  if (!currentUser) return false;
-  if (currentUser.role === "admin") return true;
-  return message.user_id === currentUser.id && !message.deleted_at;
-}
-
-function markMessageDeleted(messageId) {
-  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
-  if (!msg) return;
-
-  msg.classList.add("deleted");
-  
-  const textEl = msg.querySelector(".message-text");
-  if (textEl) {
-    textEl.innerText = "Сообщение удалено";
-  }
-
-  const deleteBtn = msg.querySelector(".delete-btn");
-  if (deleteBtn) {
-    deleteBtn.remove();
-  }
+  ws.onerror = (err) => {
+    console.error("WS error:", err);
+  };
 }
 
 async function sendMessage() {
@@ -445,25 +437,84 @@ async function sendMessage() {
   }
 }
 
-// ==============================
-// Удаление сообщения
-// ==============================
 async function deleteMessage(messageId) {
+  if (!confirm("Удалить это сообщение?")) {
+    return;
+  }
+
   try {
     const res = await fetch(`${API}/api/messages/${messageId}`, {
       method: "DELETE",
       headers: {
-        Authorization: `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     if (!res.ok) {
       const data = await res.json();
-      console.error("Ошибка удаления:", data.message);
+      alert(data.message || "Ошибка удаления сообщения");
+      return;
     }
+
+    // Сообщение удалится через WebSocket broadcast
   } catch (err) {
     console.error(err);
+    alert("Ошибка подключения к серверу");
   }
+}
+
+function removeMessageFromDOM(messageId) {
+  const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (messageEl) {
+    messageEl.remove();
+  }
+}
+
+function renderMessages(messages) {
+  const list = getElement("message-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  if (messages.length === 0) {
+    list.innerHTML =
+      '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
+    return;
+  }
+
+  messages.forEach(addMessage);
+}
+
+function addMessage(msg) {
+  const list = getElement("message-list");
+  if (!list) return;
+
+  const div = document.createElement("div");
+  div.className = "message-item";
+
+  const headerInfo = document.createElement("div");
+  headerInfo.className = "message-header-info";
+
+  const author = document.createElement("span");
+  author.className = "message-author";
+  author.innerText = msg.email || "Неизвестно";
+
+  const time = document.createElement("span");
+  time.className = "message-time";
+  time.innerText = formatTime(msg.created_at);
+
+  headerInfo.appendChild(author);
+  headerInfo.appendChild(time);
+
+  const textDiv = document.createElement("div");
+  textDiv.className = "message-text";
+  textDiv.innerText = msg.text;
+
+  div.appendChild(headerInfo);
+  div.appendChild(textDiv);
+
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
 }
 
 // ==============================
@@ -512,23 +563,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
   if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
   if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
+const role = localStorage.getItem("userRole");
 
-  // Скрываем создание чата для не-админов
-  if (currentUser && currentUser.role !== "admin") {
-    const chatNameInput = getElement("chat-name");
-    if (chatNameInput) chatNameInput.style.display = "none";
-    if (chatCreateBtn) chatCreateBtn.style.display = "none";
-  }
+const chatNameInput = getElement("chat-name");
 
-  // Делегирование события для кнопок удаления
-  document.addEventListener("click", (e) => {
-    if (e.target.classList.contains("delete-btn")) {
-      const messageId = e.target.dataset.id;
-      if (messageId) {
-        deleteMessage(messageId);
-      }
-    }
-  });
+
+if (role !== "admin") {
+  if (chatNameInput) chatNameInput.style.display = "none";
+  if (chatCreateBtn) chatCreateBtn.style.display = "none";
+}
 
   // Enter для отправки сообщения
   const messageText = getElement("message-text");
