@@ -63,6 +63,11 @@ button:hover {
 button:active {
   transform: scale(0.98);
 }
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .error {
   margin: 10px 0;
   font-size: 14px;
@@ -92,6 +97,7 @@ button:active {
   background: white;
   color: #667eea;
   margin: 0;
+  flex-shrink: 0;
 }
 #chat-list {
   list-style: none;
@@ -103,6 +109,9 @@ button:active {
   border-bottom: 1px solid #e0e0e0;
   cursor: pointer;
   transition: background 0.2s;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 #chat-list li:hover {
   background: #f5f5f5;
@@ -123,13 +132,21 @@ button:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
 }
 .message-header h2 {
   font-size: 18px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-header button {
   background: rgba(255,255,255,0.2);
   padding: 8px 16px;
+  margin: 0;
+  flex-shrink: 0;
 }
 .message-header button:hover {
   background: rgba(255,255,255,0.3);
@@ -146,6 +163,7 @@ button:active {
 .message-item {
   background: white;
   padding: 12px 16px;
+  padding-right: 40px;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   position: relative;
@@ -155,21 +173,26 @@ button:active {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+  gap: 8px;
 }
 .message-author {
   font-weight: 600;
   color: #667eea;
   font-size: 13px;
+  word-break: break-word;
 }
 .message-time {
   color: #999;
   font-size: 11px;
+  flex-shrink: 0;
 }
 .message-text {
   color: #333;
   font-size: 14px;
   line-height: 1.4;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 /* Удалённые сообщения */
@@ -182,33 +205,82 @@ button:active {
   color: #999;
 }
 
-.message-item.deleted .delete-btn {
+.message-item.deleted .delete-btn,
+.message-item.deleted .edit-btn {
   display: none;
 }
 
-/* Кнопка удаления */
-.delete-btn {
+/* Кнопки действий над сообщениями */
+.message-actions {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: none;
-  border: none;
-  color: #e74c3c;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 4px 8px;
-  margin: 0;
-  opacity: 0.6;
-  transition: opacity 0.2s;
+  display: flex;
+  gap: 4px;
 }
 
-.delete-btn:hover {
+.delete-btn,
+.edit-btn,
+.mute-btn,
+.ban-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  margin: 0;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  line-height: 1;
+}
+
+.delete-btn {
+  color: #e74c3c;
+}
+
+.edit-btn {
+  color: #3498db;
+}
+
+.mute-btn {
+  color: #f39c12;
+}
+
+.ban-btn {
+  color: #c0392b;
+}
+
+.delete-btn:hover,
+.edit-btn:hover,
+.mute-btn:hover,
+.ban-btn:hover {
   opacity: 1;
   background: none;
 }
 
-.delete-btn:active {
+.delete-btn:active,
+.edit-btn:active,
+.mute-btn:active,
+.ban-btn:active {
   transform: scale(0.95);
+}
+
+/* Уведомление о муте/бане */
+.mute-notice {
+  background: #fff3cd;
+  color: #856404;
+  padding: 12px 16px;
+  text-align: center;
+  border-bottom: 1px solid #ffc107;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mute-notice.banned {
+  background: #f8d7da;
+  color: #721c24;
+  border-bottom-color: #dc3545;
 }
 
 .message-input {
@@ -223,6 +295,10 @@ button:active {
   flex: 1;
   margin: 0;
   padding: 12px 16px;
+}
+.message-input input:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
 }
 .message-input button {
   background: #667eea;

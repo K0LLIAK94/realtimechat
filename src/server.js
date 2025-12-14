@@ -2,13 +2,22 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import app from "./app.js";
+import { db } from "./config/db.js";
 
 const PORT = process.env.PORT || 3000;
-
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 app.set("wss", wss);
+
+const checkUserStatus = async (userId) => {
+  const now = new Date().toISOString();
+  const user = await db.get("SELECT muted_until, banned_until FROM users WHERE id = ?", [userId]);
+  return {
+    muted: user?.muted_until && user.muted_until > now,
+    banned: user?.banned_until && user.banned_until > now
+  };
+};
 
 wss.on("connection", (ws) => {
   ws.isAlive = true;
@@ -18,7 +27,7 @@ wss.on("connection", (ws) => {
 
   ws.on("pong", () => ws.isAlive = true);
 
-  ws.on("message", (msg) => {
+  ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg);
 
@@ -26,11 +35,41 @@ wss.on("connection", (ws) => {
         const payload = jwt.verify(data.token, process.env.JWT_SECRET);
         ws.userId = payload.id;
         ws.role = payload.role;
+
+        const status = await checkUserStatus(ws.userId);
+        if (status.banned) {
+          ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
+          return ws.close();
+        }
+        if (status.muted) {
+          ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
+        }
       }
 
       if (data.type === "JOIN_CHAT") {
         ws.chatId = data.chatId;
       }
+
+      if (data.type === "SEND_MESSAGE") {
+        if (!ws.userId || !ws.chatId) return;
+
+        const status = await checkUserStatus(ws.userId);
+        if (status.banned) {
+          ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
+          return;
+        }
+        if (status.muted) {
+          ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
+          return;
+        }
+
+        wss.clients.forEach(client => {
+          if (client.readyState === 1 && client.chatId === ws.chatId) {
+            client.send(JSON.stringify({ type: "NEW_MESSAGE", payload: data.payload }));
+          }
+        });
+      }
+
     } catch (e) {
       console.error("WS error", e);
     }

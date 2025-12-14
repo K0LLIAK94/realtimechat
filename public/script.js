@@ -6,6 +6,12 @@ let token = localStorage.getItem("token");
 let currentChatId = null;
 let currentUser = null; // { id, email, role }
 let ws = null;
+let isMuted = false;
+let isBanned = false;
+let muteTimer = null;
+let muteEndTime = null;
+let banTimer = null;
+let banEndTime = null;
 
 // ==============================
 // Вспомогательные функции
@@ -18,6 +24,13 @@ function formatTime(timestamp) {
   if (!timestamp) return "";
 
   const date = new Date(timestamp);
+  
+  // Проверяем валидность даты
+  if (isNaN(date.getTime())) {
+    console.error("Invalid date:", timestamp);
+    return "";
+  }
+
   const now = new Date();
   const diff = now - date;
 
@@ -270,6 +283,7 @@ function initWebSocket() {
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
+    console.log("WS message received:", data);
     
     switch (data.type) {
       case "NEW_MESSAGE":
@@ -278,6 +292,25 @@ function initWebSocket() {
         
       case "MESSAGE_DELETED":
         markMessageDeleted(data.payload.id);
+        break;
+
+      case "MESSAGE_UPDATED":
+        console.log("Updating message:", data.payload);
+        updateMessageText(data.payload.id, data.payload.text);
+        break;
+        
+      case "MUTED":
+        // data.payload должен содержать { durationMinutes }
+        const duration = data.payload?.durationMinutes || data.durationMinutes;
+        console.log("Mute duration:", duration);
+        handleMute(data.message, duration);
+        break;
+        
+      case "BANNED":
+        // data.payload должен содержать { durationMinutes }
+        const banDuration = data.payload?.durationMinutes || data.durationMinutes;
+        console.log("Ban duration:", banDuration);
+        handleBan(data.message, banDuration);
         break;
         
       default:
@@ -294,13 +327,191 @@ function initWebSocket() {
   };
 }
 
-function joinChat(chatId) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: "JOIN_CHAT",
-      chatId: chatId
-    }));
+function handleMute(message, durationMinutes) {
+  console.log("handleMute called with duration:", durationMinutes);
+  isMuted = true;
+  
+  // Устанавливаем время окончания мута
+  if (durationMinutes && durationMinutes > 0) {
+    muteEndTime = new Date(Date.now() + durationMinutes * 60 * 1000);
+    console.log("Mute end time:", muteEndTime);
+    showMuteNotice(message || "Вы не можете отправлять сообщения (мут)", false, muteEndTime);
+    
+    // Запускаем таймер обратного отсчёта
+    startMuteTimer();
+  } else {
+    console.log("Permanent mute");
+    showMuteNotice(message || "Вы не можете отправлять сообщения (мут)");
   }
+  
+  disableMessageInput();
+}
+
+function startMuteTimer() {
+  console.log("Starting mute timer");
+  // Очищаем предыдущий таймер если есть
+  if (muteTimer) {
+    clearInterval(muteTimer);
+  }
+
+  muteTimer = setInterval(() => {
+    if (!muteEndTime) {
+      clearInterval(muteTimer);
+      return;
+    }
+
+    const now = Date.now();
+    const timeLeft = muteEndTime - now;
+
+    if (timeLeft <= 0) {
+      // Мут закончился
+      console.log("Mute ended");
+      clearInterval(muteTimer);
+      muteTimer = null;
+      muteEndTime = null;
+      isMuted = false;
+      enableMessageInput();
+    } else {
+      // Обновляем счётчик
+      updateMuteNotice(timeLeft);
+    }
+  }, 1000);
+}
+
+function updateMuteNotice(timeLeft) {
+  const notice = document.querySelector(".mute-notice:not(.banned)");
+  if (!notice) {
+    console.log("Mute notice not found");
+    return;
+  }
+
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+  
+  notice.innerText = `Вы не можете отправлять сообщения. Мут снимется через ${minutes}м ${seconds}с`;
+}
+
+function handleBan(message, durationMinutes) {
+  console.log("handleBan called with duration:", durationMinutes);
+  isBanned = true;
+  
+  // Устанавливаем время окончания бана
+  if (durationMinutes && durationMinutes > 0 && durationMinutes < 999999) {
+    banEndTime = new Date(Date.now() + durationMinutes * 60 * 1000);
+    console.log("Ban end time:", banEndTime);
+    showMuteNotice(message || "Вы забанены", true, banEndTime);
+    
+    // Запускаем таймер обратного отсчёта
+    startBanTimer();
+  } else {
+    console.log("Permanent ban");
+    showMuteNotice(message || "Вы забанены навсегда", true);
+  }
+  
+  disableMessageInput();
+}
+
+function startBanTimer() {
+  // Очищаем предыдущий таймер если есть
+  if (banTimer) {
+    clearInterval(banTimer);
+  }
+
+  banTimer = setInterval(() => {
+    if (!banEndTime) {
+      clearInterval(banTimer);
+      return;
+    }
+
+    const now = Date.now();
+    const timeLeft = banEndTime - now;
+
+    if (timeLeft <= 0) {
+      // Бан закончился
+      clearInterval(banTimer);
+      banTimer = null;
+      banEndTime = null;
+      isBanned = false;
+      enableMessageInput();
+    } else {
+      // Обновляем счётчик
+      updateBanNotice(timeLeft);
+    }
+  }, 1000);
+}
+
+function updateBanNotice(timeLeft) {
+  const notice = document.querySelector(".mute-notice.banned");
+  if (!notice) return;
+
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+  
+  notice.innerText = `Вы забанены. Бан снимется через ${minutes}м ${seconds}с`;
+}
+
+function showMuteNotice(message, isBan = false, endTime = null) {
+  console.log("showMuteNotice:", message, "isBan:", isBan, "endTime:", endTime);
+  
+  // Удаляем старое уведомление если есть
+  const oldNotice = document.querySelector(".mute-notice");
+  if (oldNotice) oldNotice.remove();
+
+  const messagesDiv = getElement("messages");
+  if (!messagesDiv) return;
+
+  const notice = document.createElement("div");
+  notice.className = "mute-notice" + (isBan ? " banned" : "");
+  
+  if (endTime && endTime < new Date(Date.now() + 999999 * 60 * 1000)) {
+    const timeLeft = endTime - Date.now();
+    const minutes = Math.floor(timeLeft / 60000);
+    const seconds = Math.floor((timeLeft % 60000) / 1000);
+    
+    if (isBan) {
+      notice.innerText = `Вы забанены. Бан снимется через ${minutes}м ${seconds}с`;
+    } else {
+      notice.innerText = `Вы не можете отправлять сообщения. Мут снимется через ${minutes}м ${seconds}с`;
+    }
+  } else {
+    notice.innerText = message;
+  }
+  
+  const messageHeader = messagesDiv.querySelector(".message-header");
+  if (messageHeader) {
+    messageHeader.after(notice);
+    console.log("Mute notice added to DOM");
+  }
+}
+
+function disableMessageInput() {
+  const input = getElement("message-text");
+  const button = getElement("send-message-btn");
+  
+  if (input) input.disabled = true;
+  if (button) button.disabled = true;
+}
+
+function enableMessageInput() {
+  const input = getElement("message-text");
+  const button = getElement("send-message-btn");
+  
+  if (input) input.disabled = false;
+  if (button) button.disabled = false;
+  
+  // Очищаем таймеры
+  if (muteTimer) {
+    clearInterval(muteTimer);
+    muteTimer = null;
+  }
+  if (banTimer) {
+    clearInterval(banTimer);
+    banTimer = null;
+  }
+  
+  // Удаляем уведомление
+  const notice = document.querySelector(".mute-notice");
+  if (notice) notice.remove();
 }
 
 // ==============================
@@ -308,6 +519,20 @@ function joinChat(chatId) {
 // ==============================
 async function openChat(chat) {
   currentChatId = chat.id;
+  isMuted = false;
+  isBanned = false;
+  muteEndTime = null;
+  banEndTime = null;
+  
+  // Очищаем таймеры если были
+  if (muteTimer) {
+    clearInterval(muteTimer);
+    muteTimer = null;
+  }
+  if (banTimer) {
+    clearInterval(banTimer);
+    banTimer = null;
+  }
 
   const chatsDiv = getElement("chats");
   const messagesDiv = getElement("messages");
@@ -318,6 +543,12 @@ async function openChat(chat) {
   chatsDiv.classList.add("hidden");
   messagesDiv.classList.remove("hidden");
   chatTitle.innerText = chat.name;
+  
+  // Удаляем старые уведомления
+  const oldNotice = document.querySelector(".mute-notice");
+  if (oldNotice) oldNotice.remove();
+  
+  enableMessageInput();
 
   await loadMessages(currentChatId);
   initWebSocket();
@@ -351,6 +582,10 @@ function renderMessage(message) {
   const list = getElement("message-list");
   if (!list) return;
 
+  // Проверяем, не существует ли уже это сообщение
+  const existing = list.querySelector(`[data-id="${message.id}"]`);
+  if (existing) return;
+
   const div = document.createElement("div");
   div.className = "message-item";
   div.dataset.id = message.id;
@@ -380,13 +615,51 @@ function renderMessage(message) {
   div.appendChild(headerInfo);
   div.appendChild(textDiv);
 
-  // Добавляем кнопку удаления если есть права
-  if (canDeleteMessage(message)) {
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "delete-btn";
-    deleteBtn.dataset.id = message.id;
-    deleteBtn.innerText = "✖";
-    div.appendChild(deleteBtn);
+  // Добавляем кнопки действий если есть права
+  if (!message.deleted_at) {
+    const actions = document.createElement("div");
+    actions.className = "message-actions";
+
+    // Кнопка редактирования (только для своих сообщений)
+    if (canEditMessage(message)) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "edit-btn";
+      editBtn.dataset.id = message.id;
+      editBtn.innerHTML = "✏️";
+      editBtn.title = "Редактировать";
+      actions.appendChild(editBtn);
+    }
+
+    // Кнопка удаления
+    if (canDeleteMessage(message)) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "delete-btn";
+      deleteBtn.dataset.id = message.id;
+      deleteBtn.innerHTML = "✖";
+      deleteBtn.title = "Удалить";
+      actions.appendChild(deleteBtn);
+    }
+
+    // Кнопки мута/бана для админа
+    if (currentUser && currentUser.role === "admin" && message.user_id !== currentUser.id) {
+      const muteBtn = document.createElement("button");
+      muteBtn.className = "mute-btn";
+      muteBtn.dataset.userId = message.user_id;
+      muteBtn.innerHTML = "🔇";
+      muteBtn.title = "Мут";
+      actions.appendChild(muteBtn);
+
+      const banBtn = document.createElement("button");
+      banBtn.className = "ban-btn";
+      banBtn.dataset.userId = message.user_id;
+      banBtn.innerHTML = "🚫";
+      banBtn.title = "Бан";
+      actions.appendChild(banBtn);
+    }
+
+    if (actions.children.length > 0) {
+      div.appendChild(actions);
+    }
   }
 
   list.appendChild(div);
@@ -396,6 +669,12 @@ function renderMessage(message) {
 function canDeleteMessage(message) {
   if (!currentUser) return false;
   if (currentUser.role === "admin") return true;
+  return message.user_id === currentUser.id && !message.deleted_at;
+}
+
+function canEditMessage(message) {
+  if (!currentUser) return false;
+  // Только свои сообщения можно редактировать
   return message.user_id === currentUser.id && !message.deleted_at;
 }
 
@@ -410,13 +689,34 @@ function markMessageDeleted(messageId) {
     textEl.innerText = "Сообщение удалено";
   }
 
-  const deleteBtn = msg.querySelector(".delete-btn");
-  if (deleteBtn) {
-    deleteBtn.remove();
+  const actions = msg.querySelector(".message-actions");
+  if (actions) {
+    actions.remove();
+  }
+}
+
+function updateMessageText(messageId, newText) {
+  console.log("Updating message text:", messageId, newText);
+  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  if (!msg) {
+    console.log("Message not found:", messageId);
+    return;
+  }
+
+  const textEl = msg.querySelector(".message-text");
+  if (textEl) {
+    console.log("Old text:", textEl.innerText);
+    textEl.innerText = newText;
+    console.log("New text:", textEl.innerText);
   }
 }
 
 async function sendMessage() {
+  if (isMuted || isBanned) {
+    alert("Вы не можете отправлять сообщения (мут или бан).");
+    return;
+  }
+
   const textInput = getElement("message-text");
   if (!textInput) return;
 
@@ -435,6 +735,14 @@ async function sendMessage() {
 
     if (!res.ok) {
       const data = await res.json();
+      
+      // Проверяем на мут/бан от сервера
+      if (data.message && (data.message.includes("мут") || data.message.includes("бан"))) {
+        alert(data.message);
+        disableMessageInput();
+        return;
+      }
+      
       console.error("Ошибка отправки:", data.message);
       return;
     }
@@ -446,9 +754,126 @@ async function sendMessage() {
 }
 
 // ==============================
+// Редактирование сообщения
+// ==============================
+async function editMessage(messageId) {
+  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  if (!msg) return;
+
+  const textEl = msg.querySelector(".message-text");
+  const currentText = textEl ? textEl.innerText : "";
+
+  const newText = prompt("Введите новый текст:", currentText);
+  if (!newText || newText.trim() === "" || newText === currentText) return;
+
+  try {
+    const res = await fetch(`${API}/api/messages/${messageId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ text: newText.trim() })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка редактирования");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+// ==============================
+// Мут и бан пользователей (для админа)
+// ==============================
+async function muteUser(userId) {
+  const minutes = prompt("На сколько минут замутить пользователя?", "5");
+  if (!minutes || isNaN(minutes)) return;
+
+  try {
+    const res = await fetch(`${API}/api/admin/mute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ 
+        userId: parseInt(userId), 
+        durationMinutes: parseInt(minutes) 
+      })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка мута");
+    } else {
+      alert(`Пользователь замучен на ${minutes} минут`);
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+async function banUser(userId) {
+  const minutes = prompt("На сколько минут забанить пользователя? (оставьте пустым для постоянного бана)", "10");
+  if (minutes === null) return;
+  
+  let duration;
+  if (minutes === "" || minutes.trim() === "") {
+    // Постоянный бан - отправляем большое число
+    duration = 999999;
+  } else {
+    duration = parseInt(minutes);
+    if (isNaN(duration) || duration <= 0) {
+      alert("Введите корректное число минут больше 0, или оставьте пустым для постоянного бана");
+      return;
+    }
+  }
+
+  const isPermanent = duration >= 999999;
+  if (!confirm(`Вы уверены, что хотите забанить этого пользователя${isPermanent ? ' навсегда' : ` на ${duration} минут`}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/admin/ban`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ 
+        userId: parseInt(userId),
+        durationMinutes: duration 
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error("Ban error:", data);
+      alert(data.message || "Ошибка бана");
+    } else {
+      alert(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${duration} минут`);
+    }
+  } catch (err) {
+    console.error("Ban exception:", err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+// ==============================
 // Удаление сообщения
 // ==============================
 async function deleteMessage(messageId) {
+  if (!confirm("Вы уверены, что хотите удалить это сообщение?")) {
+    return;
+  }
+
   try {
     const res = await fetch(`${API}/api/messages/${messageId}`, {
       method: "DELETE",
@@ -480,6 +905,21 @@ function leaveChat() {
   chatsDiv.classList.remove("hidden");
   currentChatId = null;
   messageList.innerHTML = "";
+  
+  isMuted = false;
+  isBanned = false;
+  muteEndTime = null;
+  banEndTime = null;
+  
+  // Очищаем таймеры
+  if (muteTimer) {
+    clearInterval(muteTimer);
+    muteTimer = null;
+  }
+  if (banTimer) {
+    clearInterval(banTimer);
+    banTimer = null;
+  }
 
   if (ws) {
     ws.close();
@@ -520,12 +960,33 @@ document.addEventListener("DOMContentLoaded", () => {
     if (chatCreateBtn) chatCreateBtn.style.display = "none";
   }
 
-  // Делегирование события для кнопок удаления
+  // Делегирование события для кнопок действий
   document.addEventListener("click", (e) => {
     if (e.target.classList.contains("delete-btn")) {
       const messageId = e.target.dataset.id;
       if (messageId) {
         deleteMessage(messageId);
+      }
+    }
+    
+    if (e.target.classList.contains("edit-btn")) {
+      const messageId = e.target.dataset.id;
+      if (messageId) {
+        editMessage(messageId);
+      }
+    }
+
+    if (e.target.classList.contains("mute-btn")) {
+      const userId = e.target.dataset.userId;
+      if (userId) {
+        muteUser(userId);
+      }
+    }
+
+    if (e.target.classList.contains("ban-btn")) {
+      const userId = e.target.dataset.userId;
+      if (userId) {
+        banUser(userId);
       }
     }
   });

@@ -11,7 +11,9 @@ await db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE,
     password TEXT,
-    role TEXT DEFAULT 'user'
+    role TEXT DEFAULT 'user',
+    muted_until DATETIME,
+    banned_until DATETIME
   );
 
   CREATE TABLE IF NOT EXISTS chats (
