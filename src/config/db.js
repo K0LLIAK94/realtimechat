@@ -13,7 +13,8 @@ await db.exec(`
     password TEXT,
     role TEXT DEFAULT 'user',
     muted_until DATETIME,
-    banned_until DATETIME
+    banned_until DATETIME,
+    ban_reason TEXT
   );
 
   CREATE TABLE IF NOT EXISTS chats (
@@ -21,6 +22,7 @@ await db.exec(`
     name TEXT,
     description TEXT,
     user_id INTEGER,
+    is_closed BOOLEAN DEFAULT false,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -31,6 +33,8 @@ await db.exec(`
     user_id INTEGER,
     deleted_at DATETIME,
     deleted_by TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
   );
 `);
+

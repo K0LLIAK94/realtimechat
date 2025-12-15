@@ -7,20 +7,26 @@ export const createChat = (name, description, userId) => {
   );
 };
 
-// Получить ВСЕ чаты (публичные для всех)
 export const getAllChats = () => {
-  return db.all(
-    `SELECT chats.*, users.email as creator_email 
-     FROM chats 
-     JOIN users ON users.id = chats.user_id
-     ORDER BY chats.created_at DESC`
+  return db.all(`
+    SELECT id, name, description, is_closed, created_at
+    FROM chats
+    ORDER BY created_at DESC
+  `);
+};
+
+export const setChatClosed = (chatId, isClosed) => {
+  return db.run(
+    "UPDATE chats SET is_closed = ? WHERE id = ?",
+    [isClosed, chatId]
   );
 };
 
-// Удалить чат (только админ)
-export const deleteChat = (chatId) => {
-  return db.run(
-    "DELETE FROM chats WHERE id = ?",
-    [chatId]
-  );
+export const getChatById = (id) => {
+  return db.get("SELECT * FROM chats WHERE id = ?", [id]);
+};
+
+export const deleteChat = async (chatId) => {
+  await db.run("DELETE FROM messages WHERE chat_id = ?", [chatId]);
+  await db.run("DELETE FROM chats WHERE id = ?", [chatId]);
 };

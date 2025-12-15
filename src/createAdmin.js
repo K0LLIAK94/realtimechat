@@ -1,8 +1,8 @@
 import bcrypt from "bcryptjs";
 import { db } from "./config/db.js";
 
-const ADMIN_EMAIL = "admin@example.com";
-const ADMIN_PASSWORD = "admin123";
+const ADMIN_EMAIL = "424242@gmail.com";
+const ADMIN_PASSWORD = "424242";
 
 async function createAdmin() {
   try {

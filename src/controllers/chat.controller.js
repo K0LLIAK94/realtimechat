@@ -21,6 +21,19 @@ export const getAll = async (req, res) => {
 
 // Только админ удаляет чаты
 export const remove = async (req, res) => {
-  await deleteChat(req.params.id);
+  const chatId = Number(req.params.id);
+  await deleteChat(chatId);
+
+  const wss = req.app.get("wss");
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({
+        type: "CHAT_DELETED",
+        chatId,
+        message: "Чат был удалён администратором"
+      }));
+    }
+  });
+
   res.json({ message: "Чат удалён" });
 };

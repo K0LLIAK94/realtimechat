@@ -16,18 +16,24 @@ export const login = async (req, res) => {
     return res.status(401).json({ message: "Неверные данные" });
   }
 
-  const token = signToken({ 
-    id: user.id, 
+  const now = new Date().toISOString();
+  if (user.banned_until && user.banned_until > now) {
+    return res.status(403).json({
+      banned: true,
+      ban_until: user.banned_until,
+      ban_reason: user.ban_reason,
+      message: `Вы заблокированы до ${user.banned_until}`
+    });
+  }
+
+  const token = signToken({
+    id: user.id,
     email: user.email,
-    role: user.role  // ✅ Добавляем роль в токен
+    role: user.role
   });
-  
-  res.json({ 
+
+  res.json({
     token,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role  // ✅ Отправляем роль клиенту
-    }
+    user: { id: user.id, email: user.email, role: user.role }
   });
 };

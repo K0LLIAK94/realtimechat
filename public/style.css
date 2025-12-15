@@ -31,6 +31,25 @@ body {
   margin-bottom: 20px;
   color: #333;
 }
+
+/* Предупреждение о бане */
+.ban-warning {
+  background: #f8d7da;
+  border: 2px solid #dc3545;
+  color: #721c24;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ban-warning strong {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
 input {
   display: block;
   width: 100%;

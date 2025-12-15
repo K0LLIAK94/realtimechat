@@ -12,6 +12,7 @@ let muteTimer = null;
 let muteEndTime = null;
 let banTimer = null;
 let banEndTime = null;
+let banInfo = JSON.parse(localStorage.getItem("banInfo") || "null"); // { until: Date, message }
 
 // ==============================
 // Вспомогательные функции
@@ -116,12 +117,78 @@ async function login() {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(currentUser));
     errorDiv.innerText = "";
+    
+    // Проверяем бан
+    checkBanStatus();
+    
     showChats();
   } catch (err) {
     console.error(err);
     errorDiv.innerText = "Ошибка подключения к серверу";
     errorDiv.style.color = "#e74c3c";
   }
+}
+
+function checkBanStatus() {
+  const banData = JSON.parse(localStorage.getItem("banInfo") || "null");
+  if (!banData) return;
+  
+  const authDiv = getElement("auth");
+  if (!authDiv) return;
+  
+  // Проверяем не истёк ли бан
+  if (banData.until) {
+    const banUntil = new Date(banData.until);
+    if (Date.now() > banUntil.getTime()) {
+      // Бан истёк
+      localStorage.removeItem("banInfo");
+      return;
+    }
+  }
+  
+  // Показываем уведомление о бане
+  let existingBanNotice = authDiv.querySelector(".ban-warning");
+  if (existingBanNotice) return; // Уже показано
+  
+  const banWarning = document.createElement("div");
+  banWarning.className = "ban-warning";
+  
+  if (banData.permanent) {
+    banWarning.innerHTML = `<strong>⚠️ Вы заблокированы навсегда</strong><br>${banData.message || "Обратитесь к администратору"}`;
+  } else {
+    const banUntil = new Date(banData.until);
+    const dateStr = banUntil.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    banWarning.innerHTML = `<strong>⚠️ Вы заблокированы до ${dateStr}</strong><br>${banData.message || "Временная блокировка"}`;
+  }
+  
+  const h2 = authDiv.querySelector("h2");
+  if (h2) {
+    h2.after(banWarning);
+  }
+}
+
+function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  token = null;
+  currentUser = null;
+  currentChatId = null;
+  
+  const authDiv = getElement("auth");
+  const chatsDiv = getElement("chats");
+  const messagesDiv = getElement("messages");
+  
+  if (authDiv) authDiv.classList.remove("hidden");
+  if (chatsDiv) chatsDiv.classList.add("hidden");
+  if (messagesDiv) messagesDiv.classList.add("hidden");
+  
+  checkBanStatus();
 }
 
 async function register() {
@@ -210,7 +277,46 @@ async function showChats() {
 
     chats.forEach((chat) => {
       const li = document.createElement("li");
-      li.innerText = chat.name;
+      
+      const nameSpan = document.createElement("span");
+      nameSpan.innerText = chat.name;
+      nameSpan.style.flex = "1";
+      li.appendChild(nameSpan);
+      
+      // Для админа добавляем кнопки управления
+      if (currentUser && currentUser.role === "admin") {
+        const actions = document.createElement("div");
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+        actions.style.marginLeft = "10px";
+        
+        // Кнопка закрытия чата
+        const closeBtn = document.createElement("button");
+        closeBtn.innerHTML = chat.is_closed ? "🔓" : "🔒";
+        closeBtn.title = chat.is_closed ? "Открыть чат" : "Закрыть чат";
+        closeBtn.className = "chat-action-btn";
+        closeBtn.onclick = (e) => {
+          e.stopPropagation();
+          toggleChatClosed(chat.id, !chat.is_closed);
+        };
+        
+        // Кнопка удаления чата
+        const deleteBtn = document.createElement("button");
+        deleteBtn.innerHTML = "🗑️";
+        deleteBtn.title = "Удалить чат";
+        deleteBtn.className = "chat-action-btn delete";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteChat(chat.id);
+        };
+        
+        actions.appendChild(closeBtn);
+        actions.appendChild(deleteBtn);
+        li.appendChild(actions);
+        li.style.display = "flex";
+        li.style.alignItems = "center";
+      }
+      
       li.onclick = () => openChat(chat);
       list.appendChild(li);
     });
@@ -395,20 +501,32 @@ function handleBan(message, durationMinutes) {
   console.log("handleBan called with duration:", durationMinutes);
   isBanned = true;
   
-  // Устанавливаем время окончания бана
+  // Сохраняем информацию о бане
+  let banUntil = null;
   if (durationMinutes && durationMinutes > 0 && durationMinutes < 999999) {
-    banEndTime = new Date(Date.now() + durationMinutes * 60 * 1000);
-    console.log("Ban end time:", banEndTime);
-    showMuteNotice(message || "Вы забанены", true, banEndTime);
-    
-    // Запускаем таймер обратного отсчёта
-    startBanTimer();
-  } else {
-    console.log("Permanent ban");
-    showMuteNotice(message || "Вы забанены навсегда", true);
+    banUntil = new Date(Date.now() + durationMinutes * 60 * 1000);
+    banEndTime = banUntil;
   }
   
-  disableMessageInput();
+  const banData = {
+    until: banUntil ? banUntil.toISOString() : null,
+    message: message || "Вы забанены",
+    permanent: !banUntil || durationMinutes >= 999999
+  };
+  
+  localStorage.setItem("banInfo", JSON.stringify(banData));
+  
+  // Выкидываем на страницу авторизации
+  alert(message || "Вы были забанены администратором");
+  
+  // Закрываем WS
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  
+  // Очищаем токен и переходим на страницу входа
+  logout();
 }
 
 function startBanTimer() {
@@ -743,6 +861,13 @@ async function sendMessage() {
         return;
       }
       
+      // Проверяем закрыт ли чат
+      if (data.message && data.message.includes("закрыт")) {
+        alert("Чат закрыт для отправки сообщений");
+        disableMessageInput();
+        return;
+      }
+      
       console.error("Ошибка отправки:", data.message);
       return;
     }
@@ -780,6 +905,61 @@ async function editMessage(messageId) {
       const data = await res.json();
       alert(data.message || "Ошибка редактирования");
     }
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+// ==============================
+// Управление чатами (для админа)
+// ==============================
+async function toggleChatClosed(chatId, isClosed) {
+  try {
+    const res = await fetch(`${API}/api/admin/chats/${chatId}/close`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ is_closed: isClosed })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка изменения статуса чата");
+      return;
+    }
+
+    alert(isClosed ? "Чат закрыт для сообщений" : "Чат открыт");
+    await showChats(); // Обновляем список
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка подключения к серверу");
+  }
+}
+
+async function deleteChat(chatId) {
+  if (!confirm("Вы уверены, что хотите удалить этот чат? Все сообщения будут удалены безвозвратно!")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/admin/chats/${chatId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.message || "Ошибка удаления чата");
+      return;
+    }
+
+    alert("Чат удалён");
+    await showChats(); // Обновляем список
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -936,8 +1116,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const userData = localStorage.getItem("user");
     if (userData) {
       currentUser = JSON.parse(userData);
+      checkBanStatus();
       showChats();
     }
+  } else {
+    // Показываем предупреждение о бане если есть
+    checkBanStatus();
   }
 
   // Слушатели кнопок

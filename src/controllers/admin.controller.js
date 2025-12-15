@@ -1,4 +1,16 @@
 import { db } from "../config/db.js";
+import { setChatClosed } from "../services/chat.service.js";
+
+export const closeChat = async (req, res) => {
+  const { is_closed } = req.body;
+  await setChatClosed(req.params.chatId, is_closed);
+
+  res.json({
+    message: is_closed ? "Чат закрыт" : "Чат открыт",
+    chat: { id: req.params.chatId, is_closed }
+  });
+};
+
 
 export const muteUser = async (req, res) => {
   let { userId, durationMinutes } = req.body;

@@ -7,6 +7,8 @@ import {
   getUserEmail,
   isUserBannedOrMuted
 } from "../services/message.service.js";
+import { getChatById } from "../services/chat.service.js";
+
 
 export const getAll = async (req, res) => {
   const messages = await getChatMessages(req.params.chatId);
@@ -18,9 +20,18 @@ export const create = async (req, res) => {
   const chatId = Number(req.params.chatId);
   const userId = req.user.id;
 
-  const bannedOrMuted = await isUserBannedOrMuted(userId);
-  if (bannedOrMuted.banned) return res.status(403).json({ message: "Вы заблокированы" });
-  if (bannedOrMuted.muted) return res.status(403).json({ message: "Вы в муте" });
+  const status = await isUserBannedOrMuted(userId);
+
+  if (status.banned)
+    return res.status(403).json({ message: "Вы забанены" });
+
+  if (status.muted)
+    return res.status(403).json({ message: "Вы в муте" });
+
+  const chat = await getChatById(chatId);
+  if (chat.is_closed && req.user.role !== "admin") {
+    return res.status(403).json({ message: "Чат закрыт для отправки сообщений" });
+  }
 
   const result = await createMessage(text, chatId, userId);
   const user = await getUserEmail(userId);
@@ -31,8 +42,7 @@ export const create = async (req, res) => {
     chat_id: chatId,
     user_id: userId,
     email: user.email,
-    created_at: new Date().toISOString(),
-    deleted_at: null
+    created_at: new Date().toISOString()
   };
 
   res.status(201).json(message);
@@ -44,7 +54,6 @@ export const create = async (req, res) => {
     }
   });
 };
-
 export const update = async (req, res) => {
   const message = await getMessageById(req.params.id);
   if (!message) return res.status(404).json({ message: "Message not found" });
