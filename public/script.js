@@ -5,7 +5,8 @@ const API = "http://localhost:3000";
 let token = localStorage.getItem("token");
 let currentChatId = null;
 let currentUser = null; // { id, email, role }
-let ws = null;
+let ws = null; // WebSocket для сообщений текущего чата
+let chatsWS = null; // WebSocket для списка чатов
 let isMuted = false;
 let isBanned = false;
 let muteTimer = null;
@@ -13,6 +14,7 @@ let muteEndTime = null;
 let banTimer = null;
 let banEndTime = null;
 let banInfo = JSON.parse(localStorage.getItem("banInfo") || "null"); // { until: Date, message }
+let chatsWSReconnectTimer = null;
 
 // ==============================
 // Вспомогательные функции
@@ -35,6 +37,7 @@ function formatTime(timestamp) {
   const now = new Date();
   const diff = now - date;
 
+  // Показываем только время если сегодня
   if (diff < 86400000 && date.getDate() === now.getDate()) {
     return date.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
@@ -42,6 +45,7 @@ function formatTime(timestamp) {
     });
   }
 
+  // Если вчера
   if (diff < 172800000 && date.getDate() === now.getDate() - 1) {
     return (
       "Вчера " +
@@ -52,9 +56,21 @@ function formatTime(timestamp) {
     );
   }
 
+  // Если в этом году - без года
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  // Полная дата с годом
   return date.toLocaleString("ru-RU", {
     day: "2-digit",
     month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -121,6 +137,9 @@ async function login() {
     // Проверяем бан
     checkBanStatus();
     
+    // Подключаем WebSocket для списка чатов
+    initChatsWS();
+    
     showChats();
   } catch (err) {
     console.error(err);
@@ -179,6 +198,23 @@ function logout() {
   token = null;
   currentUser = null;
   currentChatId = null;
+  
+  // Закрываем WebSocket соединения
+  if (chatsWS) {
+    chatsWS.close();
+    chatsWS = null;
+  }
+  
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  
+  // Очищаем таймер переподключения
+  if (chatsWSReconnectTimer) {
+    clearTimeout(chatsWSReconnectTimer);
+    chatsWSReconnectTimer = null;
+  }
   
   const authDiv = getElement("auth");
   const chatsDiv = getElement("chats");
@@ -270,15 +306,19 @@ async function showChats() {
     if (chatCreateBtn) chatCreateBtn.style.display = "none";
   }
 
+  const list = getElement("chat-list");
+  if (!list) {
+    console.error("chat-list element not found!");
+    return;
+  }
+
   try {
     const res = await fetch(`${API}/api/chats`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const chats = await res.json();
 
-    const list = getElement("chat-list");
-    if (!list) return;
-
+    console.log("Loaded chats:", chats);
     list.innerHTML = "";
 
     if (chats.length === 0) {
@@ -288,67 +328,13 @@ async function showChats() {
     }
 
     chats.forEach((chat) => {
-      const li = document.createElement("li");
-      
-      // Добавляем класс для закрытого чата
-      if (chat.is_closed) {
-        li.classList.add("closed-chat");
-      }
-      
-      const nameSpan = document.createElement("span");
-      nameSpan.innerText = chat.name;
-      nameSpan.style.flex = "1";
-      
-      // Добавляем индикатор закрытого чата
-      if (chat.is_closed) {
-        const closedBadge = document.createElement("span");
-        closedBadge.className = "closed-badge";
-        closedBadge.innerText = "🔒 Закрыта";
-        nameSpan.appendChild(document.createTextNode(" "));
-        nameSpan.appendChild(closedBadge);
-      }
-      
-      li.appendChild(nameSpan);
-      
-      // Для админа добавляем кнопки управления
-      if (currentUser && currentUser.role === "admin") {
-        const actions = document.createElement("div");
-        actions.style.display = "flex";
-        actions.style.gap = "8px";
-        actions.style.marginLeft = "10px";
-        
-        // Кнопка закрытия чата
-        const closeBtn = document.createElement("button");
-        closeBtn.innerHTML = chat.is_closed ? "🔓" : "🔒";
-        closeBtn.title = chat.is_closed ? "Открыть чат" : "Закрыть чат";
-        closeBtn.className = "chat-action-btn";
-        closeBtn.onclick = (e) => {
-          e.stopPropagation();
-          toggleChatClosed(chat.id, !chat.is_closed);
-        };
-        
-        // Кнопка удаления чата
-        const deleteBtn = document.createElement("button");
-        deleteBtn.innerHTML = "🗑️";
-        deleteBtn.title = "Удалить чат";
-        deleteBtn.className = "chat-action-btn delete";
-        deleteBtn.onclick = (e) => {
-          e.stopPropagation();
-          deleteChat(chat.id);
-        };
-        
-        actions.appendChild(closeBtn);
-        actions.appendChild(deleteBtn);
-        li.appendChild(actions);
-        li.style.display = "flex";
-        li.style.alignItems = "center";
-      }
-      
-      li.onclick = () => openChat(chat);
+      const li = createChatListItem(chat);
       list.appendChild(li);
     });
+    
+    console.log("Chats rendered:", list.children.length);
   } catch (err) {
-    console.error(err);
+    console.error("Error loading chats:", err);
   }
 }
 
@@ -387,9 +373,282 @@ async function createChat() {
 }
 
 // ==============================
-// WebSocket
+// WebSocket для списка чатов
+// ==============================
+function initChatsWS() {
+  if (!token) {
+    console.log("No token, skipping chats WS");
+    return;
+  }
+
+  // Закрываем предыдущее соединение если есть
+  if (chatsWS && chatsWS.readyState === WebSocket.OPEN) {
+    chatsWS.close();
+  }
+
+  // Очищаем таймер переподключения если есть
+  if (chatsWSReconnectTimer) {
+    clearTimeout(chatsWSReconnectTimer);
+    chatsWSReconnectTimer = null;
+  }
+
+  chatsWS = new WebSocket("ws://localhost:3000");
+
+  chatsWS.onopen = () => {
+    console.log("✅ Chats WS connected");
+    
+    // Авторизация
+    chatsWS.send(JSON.stringify({
+      type: "AUTH",
+      token: token
+    }));
+  };
+
+  chatsWS.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      console.log("Chats WS message received:", data);
+      handleChatEvent(data);
+    } catch (err) {
+      console.error("Error parsing chats WS message:", err);
+    }
+  };
+
+  chatsWS.onclose = () => {
+    console.log("❌ Chats WS disconnected, reconnecting in 2s...");
+    
+    // Автопереподключение через 2 секунды
+    chatsWSReconnectTimer = setTimeout(() => {
+      if (token) {
+        initChatsWS();
+      }
+    }, 2000);
+  };
+
+  chatsWS.onerror = (err) => {
+    console.error("Chats WS error:", err);
+  };
+}
+
+function handleChatEvent(data) {
+  console.log("handleChatEvent called:", data.type, data);
+  
+  switch (data.type) {
+    case "NEW_CHAT":
+      console.log("Processing NEW_CHAT:", data.payload);
+      addChatToUI(data.payload);
+      break;
+      
+    case "CHAT_DELETED":
+      console.log("Processing CHAT_DELETED:", data.chatId || data.payload?.id);
+      removeChatFromUI(data.chatId || data.payload?.id);
+      break;
+      
+    case "CHAT_UPDATED":
+      console.log("Processing CHAT_UPDATED:", data.payload);
+      updateChatInUI(data.payload);
+      break;
+      
+    default:
+      // Игнорируем другие события (они для messagesWS)
+      break;
+  }
+}
+
+function addChatToUI(chat) {
+  console.log("addChatToUI called with:", chat);
+  const list = getElement("chat-list");
+  if (!list) {
+    console.error("chat-list element not found");
+    return;
+  }
+
+  // Проверяем не существует ли уже
+  const existing = list.querySelector(`[data-chat-id="${chat.id}"]`);
+  if (existing) {
+    console.log("Chat already exists:", chat.id);
+    return;
+  }
+
+  // Удаляем placeholder "Нет чатов" если есть
+  const placeholder = list.querySelector('li[style*="text-align: center"]');
+  if (placeholder) {
+    console.log("Removing placeholder");
+    placeholder.remove();
+  }
+
+  console.log("Creating new chat item for:", chat.name);
+  const li = createChatListItem(chat);
+  
+  // Добавляем с анимацией
+  li.style.opacity = "0";
+  li.style.transform = "translateX(-20px)";
+  list.appendChild(li);
+  
+  console.log("Chat item added to DOM");
+  
+  // Анимация появления
+  setTimeout(() => {
+    li.style.transition = "all 0.3s ease";
+    li.style.opacity = "1";
+    li.style.transform = "translateX(0)";
+  }, 10);
+}
+
+function removeChatFromUI(chatId) {
+  const list = getElement("chat-list");
+  if (!list) return;
+
+  const chatElement = list.querySelector(`[data-chat-id="${chatId}"]`);
+  if (!chatElement) return;
+
+  // Если мы были в этом чате - выходим
+  if (currentChatId === chatId) {
+    leaveChat();
+  }
+
+  // Анимация удаления
+  chatElement.style.transition = "all 0.3s ease";
+  chatElement.style.opacity = "0";
+  chatElement.style.transform = "translateX(-20px)";
+  
+  setTimeout(() => {
+    chatElement.remove();
+    
+    // Если чатов не осталось - показываем placeholder
+    if (list.children.length === 0) {
+      list.innerHTML = '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
+    }
+  }, 300);
+}
+
+function updateChatInUI(chat) {
+  console.log("updateChatInUI called with:", chat);
+  const list = getElement("chat-list");
+  if (!list) {
+    console.error("chat-list element not found");
+    return;
+  }
+
+  const chatElement = list.querySelector(`[data-chat-id="${chat.id}"]`);
+  if (!chatElement) {
+    console.log("Chat not found in list, adding:", chat.id);
+    // Чата нет в списке - добавляем
+    addChatToUI(chat);
+    return;
+  }
+
+  console.log("Updating existing chat:", chat.name);
+  // Обновляем существующий чат
+  const newItem = createChatListItem(chat);
+  newItem.dataset.chatId = chat.id; // Убедимся что data-chat-id установлен
+  
+  // Сохраняем позицию в списке
+  chatElement.replaceWith(newItem);
+  
+  // Мигание для привлечения внимания
+  newItem.style.background = "#e3f2fd";
+  setTimeout(() => {
+    newItem.style.background = "";
+  }, 500);
+  
+  console.log("Chat updated successfully");
+  
+  // Если мы находимся в этом чате - обновляем статус
+  if (currentChatId === chat.id && window.currentChatData) {
+    console.log("Updating current chat status");
+    window.currentChatData = chat;
+    
+    // Удаляем старое уведомление о закрытии
+    const oldClosedNotice = document.querySelector(".closed-chat-notice");
+    if (oldClosedNotice) oldClosedNotice.remove();
+    
+    // Если чат закрыт и пользователь не админ - показываем уведомление
+    if (chat.is_closed && currentUser && currentUser.role !== "admin") {
+      showClosedChatNotice();
+      disableMessageInput();
+    } else if (!isMuted && !isBanned) {
+      // Разблокируем только если нет мута/бана
+      enableMessageInput();
+    }
+  }
+}
+
+function createChatListItem(chat) {
+  console.log("createChatListItem called with:", chat);
+  
+  const li = document.createElement("li");
+  li.dataset.chatId = chat.id;
+  
+  // Добавляем класс для закрытого чата
+  if (chat.is_closed) {
+    li.classList.add("closed-chat");
+    console.log("Chat is closed:", chat.id);
+  }
+  
+  const nameSpan = document.createElement("span");
+  nameSpan.innerText = chat.name;
+  nameSpan.style.flex = "1";
+  
+  // Добавляем индикатор закрытого чата
+  if (chat.is_closed) {
+    const closedBadge = document.createElement("span");
+    closedBadge.className = "closed-badge";
+    closedBadge.innerText = "🔒 Закрыта";
+    nameSpan.appendChild(document.createTextNode(" "));
+    nameSpan.appendChild(closedBadge);
+  }
+  
+  li.appendChild(nameSpan);
+  
+  // Для админа добавляем кнопки управления
+  if (currentUser && currentUser.role === "admin") {
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.gap = "8px";
+    actions.style.marginLeft = "10px";
+    actions.style.flexShrink = "0";
+    
+    // Кнопка закрытия чата
+    const closeBtn = document.createElement("button");
+    closeBtn.innerHTML = chat.is_closed ? "🔓" : "🔒";
+    closeBtn.title = chat.is_closed ? "Открыть чат" : "Закрыть чат";
+    closeBtn.className = "chat-action-btn";
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      toggleChatClosed(chat.id, !chat.is_closed);
+    };
+    
+    // Кнопка удаления чата
+    const deleteBtn = document.createElement("button");
+    deleteBtn.innerHTML = "🗑️";
+    deleteBtn.title = "Удалить чат";
+    deleteBtn.className = "chat-action-btn delete";
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteChat(chat.id);
+    };
+    
+    actions.appendChild(closeBtn);
+    actions.appendChild(deleteBtn);
+    li.appendChild(actions);
+  }
+  
+  // Всегда делаем flex для единообразия
+  li.style.display = "flex";
+  li.style.alignItems = "center";
+  
+  li.onclick = () => openChat(chat);
+  
+  console.log("Chat list item created:", li);
+  return li;
+}
+
+// ==============================
+// WebSocket для сообщений чата
 // ==============================
 function initWebSocket() {
+  // Закрываем предыдущее соединение если есть
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.close();
   }
@@ -397,7 +656,7 @@ function initWebSocket() {
   ws = new WebSocket("ws://localhost:3000");
 
   ws.onopen = () => {
-    console.log("✅ WS connected");
+    console.log("✅ Messages WS connected");
     
     // Авторизация в WebSocket
     ws.send(JSON.stringify({
@@ -416,7 +675,7 @@ function initWebSocket() {
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    console.log("WS message received:", data);
+    console.log("Messages WS message:", data);
     
     switch (data.type) {
       case "NEW_MESSAGE":
@@ -447,16 +706,16 @@ function initWebSocket() {
         break;
         
       default:
-        console.log("Unknown WS event:", data.type);
+        console.log("Unknown Messages WS event:", data.type);
     }
   };
 
   ws.onclose = () => {
-    console.log("❌ WS disconnected");
+    console.log("❌ Messages WS disconnected");
   };
 
   ws.onerror = (err) => {
-    console.error("WS error:", err);
+    console.error("Messages WS error:", err);
   };
 }
 
@@ -544,12 +803,17 @@ function handleBan(message, durationMinutes) {
   localStorage.setItem("banInfo", JSON.stringify(banData));
   
   // Выкидываем на страницу авторизации
-  alert(message || "Вы были забанены администратором");
+  alert("⚠️ " + (message || "Вы были забанены администратором"));
   
   // Закрываем WS
   if (ws) {
     ws.close();
     ws = null;
+  }
+  
+  if (chatsWS) {
+    chatsWS.close();
+    chatsWS = null;
   }
   
   // Очищаем токен и переходим на страницу входа
@@ -696,6 +960,9 @@ async function openChat(chat) {
   const oldClosedNotice = document.querySelector(".closed-chat-notice");
   if (oldClosedNotice) oldClosedNotice.remove();
   
+  // Сохраняем информацию о чате для обработки обновлений
+  window.currentChatData = chat;
+  
   // Если чат закрыт и пользователь не админ - показываем уведомление
   if (chat.is_closed && currentUser && currentUser.role !== "admin") {
     showClosedChatNotice();
@@ -765,6 +1032,9 @@ function renderMessage(message) {
   const headerInfo = document.createElement("div");
   headerInfo.className = "message-header-info";
 
+  const authorAndTime = document.createElement("div");
+  authorAndTime.className = "author-time-group";
+
   const author = document.createElement("span");
   author.className = "message-author";
   author.innerText = message.email || "Неизвестно";
@@ -773,8 +1043,9 @@ function renderMessage(message) {
   time.className = "message-time";
   time.innerText = formatTime(message.created_at);
 
-  headerInfo.appendChild(author);
-  headerInfo.appendChild(time);
+  authorAndTime.appendChild(author);
+  authorAndTime.appendChild(time);
+  headerInfo.appendChild(authorAndTime);
 
   const textDiv = document.createElement("div");
   textDiv.className = "message-text";
@@ -981,8 +1252,7 @@ async function toggleChatClosed(chatId, isClosed) {
       return;
     }
 
-    alert(isClosed ? "Чат закрыт для сообщений" : "Чат открыт");
-    await showChats(); // Обновляем список
+    // Не перезагружаем список - обновление придёт через WebSocket CHAT_UPDATED
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -1008,8 +1278,7 @@ async function deleteChat(chatId) {
       return;
     }
 
-    alert("Чат удалён");
-    await showChats(); // Обновляем список
+    // Не перезагружаем список - удаление придёт через WebSocket CHAT_DELETED
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
@@ -1167,6 +1436,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (userData) {
       currentUser = JSON.parse(userData);
       checkBanStatus();
+      
+      // Подключаем WebSocket для списка чатов
+      initChatsWS();
+      
       showChats();
     }
   } else {

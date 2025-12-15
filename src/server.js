@@ -19,6 +19,15 @@ const checkUserStatus = async (userId) => {
   };
 };
 
+// --- Отправка событий всем клиентам (обновления чатов)
+export const broadcastChatEvent = (type, payload) => {
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({ type, ...payload }));
+    }
+  });
+};
+
 wss.on("connection", (ws) => {
   ws.isAlive = true;
   ws.chatId = null;
@@ -54,15 +63,10 @@ wss.on("connection", (ws) => {
         if (!ws.userId || !ws.chatId) return;
 
         const status = await checkUserStatus(ws.userId);
-        if (status.banned) {
-          ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
-          return;
-        }
-        if (status.muted) {
-          ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
-          return;
-        }
+        if (status.banned) return ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
+        if (status.muted) return ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
 
+        // Рассылка сообщения всем в чате
         wss.clients.forEach(client => {
           if (client.readyState === 1 && client.chatId === ws.chatId) {
             client.send(JSON.stringify({ type: "NEW_MESSAGE", payload: data.payload }));
@@ -76,7 +80,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-
+// Пинг для поддержания соединений живыми
 setInterval(() => {
   wss.clients.forEach(ws => {
     if (!ws.isAlive) return ws.terminate();
