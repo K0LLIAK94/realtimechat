@@ -258,6 +258,18 @@ async function showChats() {
   messagesDiv.classList.add("hidden");
   currentChatId = null;
 
+  // Скрываем/показываем поле создания чата в зависимости от роли
+  const chatNameInput = getElement("chat-name");
+  const chatCreateBtn = getElement("chat-create-btn");
+  
+  if (currentUser && currentUser.role === "admin") {
+    if (chatNameInput) chatNameInput.style.display = "block";
+    if (chatCreateBtn) chatCreateBtn.style.display = "block";
+  } else {
+    if (chatNameInput) chatNameInput.style.display = "none";
+    if (chatCreateBtn) chatCreateBtn.style.display = "none";
+  }
+
   try {
     const res = await fetch(`${API}/api/chats`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -278,9 +290,24 @@ async function showChats() {
     chats.forEach((chat) => {
       const li = document.createElement("li");
       
+      // Добавляем класс для закрытого чата
+      if (chat.is_closed) {
+        li.classList.add("closed-chat");
+      }
+      
       const nameSpan = document.createElement("span");
       nameSpan.innerText = chat.name;
       nameSpan.style.flex = "1";
+      
+      // Добавляем индикатор закрытого чата
+      if (chat.is_closed) {
+        const closedBadge = document.createElement("span");
+        closedBadge.className = "closed-badge";
+        closedBadge.innerText = "🔒 Закрыта";
+        nameSpan.appendChild(document.createTextNode(" "));
+        nameSpan.appendChild(closedBadge);
+      }
+      
       li.appendChild(nameSpan);
       
       // Для админа добавляем кнопки управления
@@ -666,10 +693,33 @@ async function openChat(chat) {
   const oldNotice = document.querySelector(".mute-notice");
   if (oldNotice) oldNotice.remove();
   
-  enableMessageInput();
+  const oldClosedNotice = document.querySelector(".closed-chat-notice");
+  if (oldClosedNotice) oldClosedNotice.remove();
+  
+  // Если чат закрыт и пользователь не админ - показываем уведомление
+  if (chat.is_closed && currentUser && currentUser.role !== "admin") {
+    showClosedChatNotice();
+    disableMessageInput();
+  } else {
+    enableMessageInput();
+  }
 
   await loadMessages(currentChatId);
   initWebSocket();
+}
+
+function showClosedChatNotice() {
+  const messagesDiv = getElement("messages");
+  if (!messagesDiv) return;
+
+  const notice = document.createElement("div");
+  notice.className = "closed-chat-notice";
+  notice.innerHTML = "🔒 <strong>Тема закрыта</strong><br>Вы можете читать сообщения, но не можете отправлять новые";
+  
+  const messageHeader = messagesDiv.querySelector(".message-header");
+  if (messageHeader) {
+    messageHeader.after(notice);
+  }
 }
 
 async function loadMessages(chatId) {
@@ -1137,9 +1187,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
   if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
 
-  // Скрываем создание чата для не-админов
+  // Скрываем создание чата для не-админов при загрузке
+  const chatNameInput = getElement("chat-name");
   if (currentUser && currentUser.role !== "admin") {
-    const chatNameInput = getElement("chat-name");
     if (chatNameInput) chatNameInput.style.display = "none";
     if (chatCreateBtn) chatCreateBtn.style.display = "none";
   }
