@@ -540,7 +540,7 @@ function removeChatFromUI(chatId) {
 
 function updateChatInUI(chat) {
   console.log("updateChatInUI called with:", chat);
-  const list = getElement("topics-list"); // ИЗМЕНЕНО
+  const list = getElement("topics-list");
   if (!list) {
     console.error("topics-list element not found");
     return;
@@ -606,7 +606,6 @@ function updateChatInUI(chat) {
     let titleDiv = chatElement.querySelector(".topic-title");
     if (titleDiv) {
       let badge = titleDiv.querySelector(".topic-badge");
-      let badgeHTML = badge ? badge.outerHTML : "";
       
       for (let node of titleDiv.childNodes) {
         if (node.nodeType === 3) {
@@ -619,15 +618,31 @@ function updateChatInUI(chat) {
   
   console.log("Chat updated successfully");
   
+  // ИСПРАВЛЕНИЕ: Если мы в этом чате - обновляем статус в заголовке
   if (currentChatId === chat.id && window.currentChatData) {
     console.log("Updating current chat status");
     
     Object.assign(window.currentChatData, chat);
     
+    // Обновляем статус темы в заголовке
+    const statusEl = getElement("thread-status");
+    const isClosed = chat.is_closed === true || chat.is_closed === 1;
+    if (statusEl) {
+      statusEl.textContent = isClosed ? "🔒 Тема закрыта" : "💬 Активная тема";
+    }
+    
+    // Обновляем кнопку админа
+    const actionsEl = getElement("thread-admin-actions");
+    if (actionsEl && currentUser?.role === "admin") {
+      actionsEl.innerHTML = `
+        <button class="topic-action-btn" onclick="toggleChatClosed(${chat.id}, ${!isClosed})" title="${isClosed ? 'Открыть' : 'Закрыть'}">
+          ${isClosed ? '🔓' : '🔒'}
+        </button>
+      `;
+    }
+    
     const oldClosedNotice = document.querySelector(".closed-notice");
     if (oldClosedNotice) oldClosedNotice.remove();
-    
-    const isClosed = chat.is_closed === true || chat.is_closed === 1;
     
     if (isClosed && currentUser && currentUser.role !== "admin") {
       showClosedChatNotice();
@@ -637,6 +652,7 @@ function updateChatInUI(chat) {
     }
   }
 }
+
 
 
 
@@ -1317,11 +1333,11 @@ async function sendMessage() {
 // Редактирование сообщения
 // ==============================
 async function editMessage(messageId) {
-  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  const msg = document.querySelector(`.post-item[data-id="${messageId}"]`);
   if (!msg) return;
 
-  const textEl = msg.querySelector(".message-text");
-  const currentText = textEl ? textEl.innerText : "";
+  const textEl = msg.querySelector(".post-content");
+  const currentText = textEl ? textEl.textContent : "";
 
   const newText = prompt("Введите новый текст:", currentText);
   if (!newText || newText.trim() === "" || newText === currentText) return;
@@ -1339,6 +1355,12 @@ async function editMessage(messageId) {
     if (!res.ok) {
       const data = await res.json();
       alert(data.message || "Ошибка редактирования");
+      return;
+    }
+
+    // Обновляем текст в UI сразу
+    if (textEl) {
+      textEl.textContent = newText.trim();
     }
   } catch (err) {
     console.error(err);
@@ -1346,6 +1368,9 @@ async function editMessage(messageId) {
   }
 }
 
+// ==============================
+// Управление чатами (для админа)
+// ==============================
 // ==============================
 // Управление чатами (для админа)
 // ==============================
@@ -1370,11 +1395,46 @@ async function toggleChatClosed(chatId, isClosed) {
 
     console.log(`Chat ${chatId} status changed to: ${isClosed ? 'closed' : 'open'}`);
     
+    // ИСПРАВЛЕНИЕ: Если мы в этом чате - обновляем UI сразу
+    if (currentChatId === chatId) {
+      const statusEl = getElement("thread-status");
+      if (statusEl) {
+        statusEl.textContent = isClosed ? "🔒 Тема закрыта" : "💬 Активная тема";
+      }
+      
+      // Обновляем кнопку админа
+      const actionsEl = getElement("thread-admin-actions");
+      if (actionsEl && currentUser?.role === "admin") {
+        actionsEl.innerHTML = `
+          <button class="topic-action-btn" onclick="toggleChatClosed(${chatId}, ${!isClosed})" title="${isClosed ? 'Открыть' : 'Закрыть'}">
+            ${isClosed ? '🔓' : '🔒'}
+          </button>
+        `;
+      }
+      
+      // Обновляем currentChatData
+      if (window.currentChatData) {
+        window.currentChatData.is_closed = isClosed;
+      }
+      
+      // Показываем/убираем уведомление о закрытии
+      const oldClosedNotice = document.querySelector(".closed-notice");
+      if (oldClosedNotice) oldClosedNotice.remove();
+      
+      if (isClosed && currentUser && currentUser.role !== "admin") {
+        showClosedChatNotice();
+        disableMessageInput();
+      } else if (!isMuted && !isBanned) {
+        enableMessageInput();
+      }
+    }
+    
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
   }
 }
+
 
 
 
@@ -1571,62 +1631,83 @@ function backToForum() {
 
 
 // ==============================
-// Инициализация после загрузки DOM
+// Инициализация при загрузке страницы
 // ==============================
 document.addEventListener("DOMContentLoaded", () => {
   if (token) {
-    const userData = localStorage.getItem("user");
-    if (userData) {
-      currentUser = JSON.parse(userData);
-      checkBanStatus();
-      
-      const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
-      if (muteInfo && muteInfo.until) {
-        const muteUntilDate = new Date(muteInfo.until);
-        if (Date.now() < muteUntilDate.getTime()) {
-          isMuted = true;
-          muteEndTime = muteUntilDate;
-          showMuteNotice(muteInfo.message, false, muteUntil);
-          disableMessageInput();
-          startMuteTimer();
-        } else {
-          localStorage.removeItem("muteInfo");
+    try {
+      const userData = localStorage.getItem("user");
+      if (userData) {
+        currentUser = JSON.parse(userData);
+        
+        // Проверяем бан
+        checkBanStatus();
+        
+        // Проверяем мут из localStorage (НЕ выкидываем на авторизацию!)
+        const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
+        if (muteInfo && muteInfo.until) {
+          const muteUntilDate = new Date(muteInfo.until);
+          if (Date.now() < muteUntilDate.getTime()) {
+            console.log("Mute is still active, restoring state");
+            isMuted = true;
+            muteEndTime = muteUntilDate;
+            // Уведомление покажется когда откроем чат
+          } else {
+            // Мут истёк
+            localStorage.removeItem("muteInfo");
+          }
         }
+        
+        initChatsWS();
+        showChats();
+      } else {
+        // Нет данных пользователя - выходим
+        logout();
       }
-      
-      initChatsWS();
-      showChats();
+    } catch (e) {
+      console.error("Error loading user data:", e);
+      logout();
     }
   } else {
+    // Нет токена - показываем страницу входа
+    const authDiv = getElement("auth");
+    if (authDiv) authDiv.classList.remove("hidden");
     checkBanStatus();
   }
 
   // Делегирование кликов
   document.addEventListener("click", (e) => {
-    // Новые классы для кнопок постов
-    if (e.target.classList.contains("delete-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🗑️") {
-      const messageId = e.target.dataset.id || e.target.closest('[data-id]')?.dataset.id;
+    // Удаление
+    if (e.target.closest(".post-action-btn.delete")) {
+      const btn = e.target.closest(".post-action-btn.delete");
+      const messageId = btn.dataset.id || btn.closest('[data-id]')?.dataset.id;
       if (messageId) {
         deleteMessage(messageId);
       }
     }
     
-    if (e.target.classList.contains("edit-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "✏️") {
-      const messageId = e.target.dataset.id || e.target.closest('[data-id]')?.dataset.id;
+    // Редактирование
+    if (e.target.closest(".post-action-btn.edit")) {
+      const btn = e.target.closest(".post-action-btn.edit");
+      const messageId = btn.dataset.id || btn.closest('[data-id]')?.dataset.id;
       if (messageId) {
         editMessage(messageId);
       }
     }
 
-    if (e.target.classList.contains("mute-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🔇") {
-      const userId = e.target.dataset.userId;
+    // Мут
+    if (e.target.closest(".post-action-btn.mute")) {
+      const btn = e.target.closest(".post-action-btn.mute");
+      const userId = btn.dataset.userId;
       if (userId) {
         muteUser(userId);
       }
     }
 
-    if (e.target.classList.contains("ban-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🚫") {
-      const userId = e.target.dataset.userId;
+    // Бан
+    if (e.target.closest(".post-action-btn.ban")) {
+      const btn = e.target.closest(".post-action-btn.ban");
+      const userId = btn.dataset.userId;
       if (userId) {
         banUser(userId);
       }
@@ -1634,7 +1715,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Enter для отправки
-  const postInput = getElement("post-input"); // ИЗМЕНЕНО
+  const postInput = getElement("post-input");
   if (postInput) {
     postInput.addEventListener("keypress", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -1645,10 +1726,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Enter для создания темы
-  const topicName = getElement("topic-name"); // ИЗМЕНЕНО
+  const topicName = getElement("topic-name");
   if (topicName) {
     topicName.addEventListener("keypress", (e) => {
       if (e.key === "Enter") {
+        e.preventDefault();
         createChat();
       }
     });
