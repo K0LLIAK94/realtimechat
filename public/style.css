@@ -650,3 +650,145 @@ input::placeholder {
         padding: 16px;
     }
 }
+/* ==================== Улучшенное поле ввода сообщений ==================== */
+
+.reply-form {
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border);
+    padding: 20px 24px;
+    display: flex;
+    gap: 12px;
+    box-shadow: var(--shadow-sm);
+}
+
+.reply-form input {
+    flex: 1;
+    margin-bottom: 0;
+    padding: 14px 18px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border);
+    transition: all 0.3s ease;
+}
+
+/* Эффект при фокусе */
+.reply-form input:focus {
+    background: var(--bg-primary);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(88, 101, 242, 0.12);
+    transform: translateY(-1px);
+}
+
+/* Эффект при наведении */
+.reply-form input:hover:not(:disabled) {
+    border-color: var(--primary);
+    background: var(--bg-primary);
+}
+
+/* Стиль при вводе текста */
+.reply-form input:not(:placeholder-shown) {
+    background: var(--bg-primary);
+    border-color: var(--success);
+}
+
+/* Placeholder */
+.reply-form input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.7;
+    transition: opacity 0.3s;
+}
+
+.reply-form input:focus::placeholder {
+    opacity: 0.5;
+}
+
+/* Кнопка отправки - градиент */
+.btn-send {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    color: white;
+    padding: 14px 28px;
+    font-weight: 600;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-send::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.5s;
+}
+
+.btn-send:hover::before {
+    left: 100%;
+}
+
+.btn-send:hover {
+    background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(88, 101, 242, 0.3);
+}
+
+.btn-send:active {
+    transform: translateY(0);
+}
+
+/* Анимация пульсации при фокусе на инпуте */
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 8px rgba(88, 101, 242, 0);
+    }
+}
+
+.reply-form input:focus {
+    animation: pulse 2s infinite;
+}
+
+/* Disabled состояние */
+.reply-form input:disabled {
+    background: var(--bg-tertiary);
+    cursor: not-allowed;
+    border-color: var(--border);
+    opacity: 0.6;
+}
+
+.btn-send:disabled {
+    background: var(--bg-tertiary);
+    cursor: not-allowed;
+    transform: none;
+    opacity: 0.5;
+}
+
+/* Альтернативный вариант - темная тема ввода */
+.reply-form.dark-mode input {
+    background: #2c2f33;
+    border-color: #40444b;
+    color: #dcddde;
+}
+
+.reply-form.dark-mode input:focus {
+    background: #36393f;
+    border-color: var(--primary);
+}
+
+/* Индикатор количества символов (опционально) */
+.reply-form::after {
+    content: attr(data-chars);
+    position: absolute;
+    bottom: 4px;
+    right: 80px;
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.reply-form.typing::after {
+    opacity: 1;
+}

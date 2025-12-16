@@ -1161,24 +1161,26 @@ async function loadMessages(chatId) {
 
 
 function renderMessage(message) {
-  const list = getElement("posts-list"); // ИЗМЕНЕНО
+  const list = getElement("posts-list");
   if (!list) return;
 
   const existing = list.querySelector(`[data-id="${message.id}"]`);
   if (existing) return;
 
   const div = document.createElement("div");
-  div.className = "post-item"; // ИЗМЕНЕНО
+  div.className = "post-item";
   div.dataset.id = message.id;
 
   if (message.deleted_at) {
     div.classList.add("deleted");
   }
 
-  // Новая структура для форума
+  // ГЕНЕРАЦИЯ ЦВЕТА ПО ID ПОЛЬЗОВАТЕЛЯ
+  const userColor = getUserColor(message.user_id);
+
   div.innerHTML = `
     <div class="post-header">
-      <span class="post-author${message.user_role === 'admin' ? ' admin' : ''}">${escapeHtml(message.email || "Неизвестно")}</span>
+      <span class="post-author${message.user_role === 'admin' ? ' admin' : ''}" style="color: ${message.user_role === 'admin' ? '#f39c12' : userColor}">${escapeHtml(message.email || "Неизвестно")}</span>
       <span class="post-time">${formatTime(message.created_at)}</span>
     </div>
     <div class="post-content">${message.deleted_at ? "Сообщение удалено" : escapeHtml(message.text)}</div>
@@ -1236,6 +1238,24 @@ function renderMessage(message) {
     container.scrollTop = container.scrollHeight;
   }
 }
+
+function getUserColor(userId) {
+  const colors = [
+    '#e91e63', // Розовый
+    '#9c27b0', // Фиолетовый
+    '#3f51b5', // Синий
+    '#00bcd4', // Голубой
+    '#009688', // Бирюзовый
+    '#4caf50', // Зеленый
+    '#ff9800', // Оранжевый
+    '#f44336', // Красный
+    '#795548', // Коричневый
+    '#607d8b', // Серо-синий
+  ];
+  
+  return colors[userId % colors.length];
+}
+
 
 function canDeleteMessage(message) {
   if (!currentUser) return false;
@@ -1634,6 +1654,9 @@ function backToForum() {
 // Инициализация при загрузке страницы
 // ==============================
 document.addEventListener("DOMContentLoaded", () => {
+  
+  
+  
   if (token) {
     try {
       const userData = localStorage.getItem("user");
@@ -1715,15 +1738,40 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Enter для отправки
-  const postInput = getElement("post-input");
-  if (postInput) {
+  // Добавьте в раздел DOMContentLoaded
+const postInput = getElement("post-input");
+if (postInput) {
+    // Enter для отправки
     postInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
     });
-  }
+    
+    // Счетчик символов (опционально)
+    postInput.addEventListener("input", (e) => {
+        const replyForm = e.target.closest(".reply-form");
+        const length = e.target.value.length;
+        
+        if (replyForm) {
+            if (length > 0) {
+                replyForm.classList.add("typing");
+                replyForm.setAttribute("data-chars", `${length}/1000`);
+            } else {
+                replyForm.classList.remove("typing");
+            }
+            
+            // Предупреждение при приближении к лимиту
+            if (length > 900) {
+                e.target.style.borderColor = "#FFA500";
+            } else if (length > 0) {
+                e.target.style.borderColor = "var(--success)";
+            }
+        }
+    });
+}
+
 
   // Enter для создания темы
   const topicName = getElement("topic-name");
