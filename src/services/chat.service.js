@@ -1,9 +1,10 @@
 import { db } from "../config/db.js";
 
 export const createChat = (name, description, userId) => {
+  const now = Date.now();
   return db.run(
-    "INSERT INTO chats (name, description, user_id) VALUES (?, ?, ?)",
-    [name, description || "", userId]
+    "INSERT INTO chats (name, description, user_id, created_at) VALUES (?, ?, ?, ?)",
+    [name, description || "", userId, now]
   );
 };
 
@@ -19,7 +20,6 @@ export const getAllChats = async () => {
     created_at: new Date(chat.created_at).toISOString()
   }));
 };
-
 
 export const setChatClosed = (chatId, isClosed) => {
   return db.run(

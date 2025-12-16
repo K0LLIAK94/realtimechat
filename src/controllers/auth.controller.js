@@ -16,7 +16,7 @@ export const login = async (req, res) => {
     return res.status(401).json({ message: "Неверные данные" });
   }
 
-  const now = new Date().toISOString();
+  const now = Date.now();
   if (user.banned_until && user.banned_until > now) {
     return res.status(403).json({
       banned: true,

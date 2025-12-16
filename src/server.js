@@ -1,3 +1,4 @@
+/* --- File: src/server.js --- */
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
@@ -38,7 +39,7 @@ wss.on("connection", (ws) => {
         ws.role = decoded.role;
 
         const status = await getUserStatus(ws.userId);
-        const now = new Date().toISOString();
+        const now = Date.now();
 
         if (status?.banned_until && status.banned_until > now) {
           ws.send(JSON.stringify({
@@ -74,7 +75,7 @@ wss.on("connection", (ws) => {
         if (!ws.userId || !ws.chatId) return;
 
         const status = await getUserStatus(ws.userId);
-        const now = new Date().toISOString();
+        const now = Date.now();
 
         if (status?.banned_until && status.banned_until > now) {
           return ws.send(JSON.stringify({

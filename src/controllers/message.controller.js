@@ -46,7 +46,7 @@ export const create = async (req, res) => {
     chat_id: chatId,
     user_id: userId,
     email: user.email,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString() // ✅ Это правильно - ISO формат с UTC
   };
 
   res.status(201).json(message);
@@ -58,6 +58,7 @@ export const create = async (req, res) => {
     }
   });
 };
+
 export const update = async (req, res) => {
   const message = await getMessageById(req.params.id);
   if (!message) return res.status(404).json({ message: "Message not found" });

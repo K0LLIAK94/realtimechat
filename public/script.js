@@ -38,11 +38,10 @@ function formatTime(timestamp) {
   const diff = now - date;
 
   // Показываем только время если сегодня
-    // Показываем только время если сегодня
   if (diff < 86400000 && date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
-      minute: "2-digit",
+      minute: "2-digit"
     });
   }
 
@@ -54,11 +53,10 @@ function formatTime(timestamp) {
       "Вчера " +
       date.toLocaleTimeString("ru-RU", {
         hour: "2-digit",
-        minute: "2-digit",
+        minute: "2-digit"
       })
     );
   }
-
 
   // Если в этом году - без года
   if (date.getFullYear() === now.getFullYear()) {
@@ -66,7 +64,7 @@ function formatTime(timestamp) {
       day: "2-digit",
       month: "2-digit",
       hour: "2-digit",
-      minute: "2-digit",
+      minute: "2-digit"
     });
   }
 
@@ -76,9 +74,10 @@ function formatTime(timestamp) {
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit",
+    minute: "2-digit"
   });
 }
+
 
 function getElement(id) {
   const el = document.getElementById(id);

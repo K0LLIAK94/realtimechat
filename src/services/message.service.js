@@ -1,7 +1,11 @@
 import { db } from "../config/db.js";
 
 export const createMessage = (text, chatId, userId) => {
-  return db.run("INSERT INTO messages (text, chat_id, user_id) VALUES (?, ?, ?)", [text, chatId, userId]);
+  const now = Date.now();
+  return db.run(
+    "INSERT INTO messages (text, chat_id, user_id, created_at) VALUES (?, ?, ?, ?)", 
+    [text, chatId, userId, now]
+  );
 };
 
 export const getChatMessages = async (chatId) => {
@@ -18,7 +22,6 @@ export const getChatMessages = async (chatId) => {
     created_at: new Date(msg.created_at).toISOString()
   }));
 };
-
 
 export const getMessageById = (id) => {
   return db.get(`
@@ -38,17 +41,18 @@ export const updateMessage = (id, text) => {
 };
 
 export const softDeleteMessage = (id, deletedBy) => {
+  const now = Date.now();
   return db.run(`
     UPDATE messages
     SET text = 'Сообщение удалено',
-        deleted_at = CURRENT_TIMESTAMP,
+        deleted_at = ?,
         deleted_by = ?
     WHERE id = ?
-  `, [deletedBy, id]);
+  `, [now, deletedBy, id]);
 };
 
 export const isUserBannedOrMuted = async (userId) => {
-  const now = new Date().toISOString();
+  const now = Date.now();
   const user = await db.get("SELECT muted_until, banned_until FROM users WHERE id = ?", [userId]);
 
   return {
