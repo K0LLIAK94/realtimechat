@@ -1,6 +1,7 @@
 // ==============================
 // Конфигурация
 // ==============================
+
 const API = "http://localhost:3000";
 let token = localStorage.getItem("token");
 let currentChatId = null;
@@ -21,6 +22,13 @@ let chatsWSReconnectTimer = null;
 // ==============================
 function isValidEmail(email) {
   return /\S+@\S+\.\S+/.test(email);
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function formatTime(timestamp) {
@@ -198,13 +206,11 @@ function checkBanStatus() {
 function logout() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
-  localStorage.removeItem("muteInfo"); // ✓ ДОБАВИТЬ
+  localStorage.removeItem("muteInfo");
   token = null;
-
   currentUser = null;
   currentChatId = null;
   
-  // Закрываем WebSocket соединения
   if (chatsWS) {
     chatsWS.close();
     chatsWS = null;
@@ -215,19 +221,18 @@ function logout() {
     ws = null;
   }
   
-  // Очищаем таймер переподключения
   if (chatsWSReconnectTimer) {
     clearTimeout(chatsWSReconnectTimer);
     chatsWSReconnectTimer = null;
   }
   
   const authDiv = getElement("auth");
-  const chatsDiv = getElement("chats");
-  const messagesDiv = getElement("messages");
+  const forumDiv = getElement("forum"); // ИЗМЕНЕНО
+  const threadDiv = getElement("thread"); // ИЗМЕНЕНО
   
   if (authDiv) authDiv.classList.remove("hidden");
-  if (chatsDiv) chatsDiv.classList.add("hidden");
-  if (messagesDiv) messagesDiv.classList.add("hidden");
+  if (forumDiv) forumDiv.classList.add("hidden");
+  if (threadDiv) threadDiv.classList.add("hidden");
   
   checkBanStatus();
 }
@@ -289,31 +294,32 @@ async function register() {
 // ==============================
 async function showChats() {
   const authDiv = getElement("auth");
-  const chatsDiv = getElement("chats");
-  const messagesDiv = getElement("messages");
+  const forumDiv = getElement("forum"); // ИЗМЕНЕНО: было "chats"
+  const threadDiv = getElement("thread"); // ИЗМЕНЕНО: было "messages"
 
-  if (!authDiv || !chatsDiv || !messagesDiv) return;
+  if (!authDiv || !forumDiv || !threadDiv) return;
 
   authDiv.classList.add("hidden");
-  chatsDiv.classList.remove("hidden");
-  messagesDiv.classList.add("hidden");
+  forumDiv.classList.remove("hidden");
+  threadDiv.classList.add("hidden");
   currentChatId = null;
 
-  // Скрываем/показываем поле создания чата в зависимости от роли
-  const chatNameInput = getElement("chat-name");
-  const chatCreateBtn = getElement("chat-create-btn");
-  
-  if (currentUser && currentUser.role === "admin") {
-    if (chatNameInput) chatNameInput.style.display = "block";
-    if (chatCreateBtn) chatCreateBtn.style.display = "block";
-  } else {
-    if (chatNameInput) chatNameInput.style.display = "none";
-    if (chatCreateBtn) chatCreateBtn.style.display = "none";
+  // Показываем info пользователя
+  const userInfo = getElement("user-info");
+  if (userInfo && currentUser) {
+    const roleEmoji = currentUser.role === "admin" ? "👑" : "👤";
+    userInfo.textContent = `${roleEmoji} ${currentUser.email}`;
   }
 
-  const list = getElement("chat-list");
+  // Показываем создание темы только админам
+  const createContainer = getElement("create-topic-container");
+  if (createContainer) {
+    createContainer.style.display = currentUser?.role === "admin" ? "flex" : "none";
+  }
+
+  const list = getElement("topics-list"); // ИЗМЕНЕНО: было "chat-list"
   if (!list) {
-    console.error("chat-list element not found!");
+    console.error("topics-list element not found!");
     return;
   }
 
@@ -327,8 +333,7 @@ async function showChats() {
     list.innerHTML = "";
 
     if (chats.length === 0) {
-      list.innerHTML =
-        '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
+      list.innerHTML = '<div class="empty-state">📭 Пока нет тем для обсуждения</div>';
       return;
     }
 
@@ -343,13 +348,14 @@ async function showChats() {
   }
 }
 
+
 async function createChat() {
-  const nameInput = getElement("chat-name");
+  const nameInput = getElement("topic-name"); // ИЗМЕНЕНО: было "chat-name"
   if (!nameInput) return;
 
   const name = nameInput.value.trim();
   if (!name) {
-    alert("Введите название чата");
+    alert("Введите название темы");
     return;
   }
 
@@ -365,7 +371,7 @@ async function createChat() {
 
     if (!res.ok) {
       const data = await res.json();
-      alert(data.message || "Ошибка создания чата");
+      alert(data.message || "Ошибка создания темы");
       return;
     }
 
@@ -375,6 +381,11 @@ async function createChat() {
     console.error(err);
     alert("Ошибка подключения к серверу");
   }
+}
+
+
+function createTopic() {
+  createChat();
 }
 
 // ==============================
@@ -469,21 +480,19 @@ function handleChatEvent(data) {
 
 function addChatToUI(chat) {
   console.log("addChatToUI called with:", chat);
-  const list = getElement("chat-list");
+  const list = getElement("topics-list"); // ИЗМЕНЕНО
   if (!list) {
-    console.error("chat-list element not found");
+    console.error("topics-list element not found");
     return;
   }
 
-  // Проверяем не существует ли уже
   const existing = list.querySelector(`[data-chat-id="${chat.id}"]`);
   if (existing) {
     console.log("Chat already exists:", chat.id);
     return;
   }
 
-  // Удаляем placeholder "Нет чатов" если есть
-  const placeholder = list.querySelector('li[style*="text-align: center"]');
+  const placeholder = list.querySelector('.empty-state');
   if (placeholder) {
     console.log("Removing placeholder");
     placeholder.remove();
@@ -492,14 +501,12 @@ function addChatToUI(chat) {
   console.log("Creating new chat item for:", chat.name);
   const li = createChatListItem(chat);
   
-  // Добавляем с анимацией
   li.style.opacity = "0";
   li.style.transform = "translateX(-20px)";
   list.appendChild(li);
   
   console.log("Chat item added to DOM");
   
-  // Анимация появления
   setTimeout(() => {
     li.style.transition = "all 0.3s ease";
     li.style.opacity = "1";
@@ -508,18 +515,16 @@ function addChatToUI(chat) {
 }
 
 function removeChatFromUI(chatId) {
-  const list = getElement("chat-list");
+  const list = getElement("topics-list"); // ИЗМЕНЕНО
   if (!list) return;
 
   const chatElement = list.querySelector(`[data-chat-id="${chatId}"]`);
   if (!chatElement) return;
 
-  // Если мы были в этом чате - выходим
   if (currentChatId === chatId) {
     leaveChat();
   }
 
-  // Анимация удаления
   chatElement.style.transition = "all 0.3s ease";
   chatElement.style.opacity = "0";
   chatElement.style.transform = "translateX(-20px)";
@@ -527,18 +532,17 @@ function removeChatFromUI(chatId) {
   setTimeout(() => {
     chatElement.remove();
     
-    // Если чатов не осталось - показываем placeholder
     if (list.children.length === 0) {
-      list.innerHTML = '<li style="padding: 20px; text-align: center; color: #999;">Нет чатов. Создайте первый!</li>';
+      list.innerHTML = '<div class="empty-state">📭 Пока нет тем для обсуждения</div>';
     }
   }, 300);
 }
 
 function updateChatInUI(chat) {
   console.log("updateChatInUI called with:", chat);
-  const list = getElement("chat-list");
+  const list = getElement("topics-list"); // ИЗМЕНЕНО
   if (!list) {
-    console.error("chat-list element not found");
+    console.error("topics-list element not found");
     return;
   }
 
@@ -553,55 +557,44 @@ function updateChatInUI(chat) {
 
   console.log("Updating existing chat:", chat.id);
   
-  // ✅ Обновляем класс closed-chat (проверяем и boolean и число)
   if (chat.hasOwnProperty('is_closed')) {
     const isClosed = chat.is_closed === true || chat.is_closed === 1;
     
     if (isClosed) {
-      chatElement.classList.add("closed-chat");
+      chatElement.classList.add("closed-topic");
       
-      // Обновляем или добавляем бейдж "🔒 Закрыта"
-      let nameSpan = chatElement.querySelector("span:first-child");
-      let badge = nameSpan?.querySelector(".closed-badge");
+      let titleDiv = chatElement.querySelector(".topic-title");
+      let badge = titleDiv?.querySelector(".topic-badge");
       
-      if (nameSpan && !badge) {
+      if (titleDiv && !badge) {
         badge = document.createElement("span");
-        badge.className = "closed-badge";
-        badge.innerText = "🔒 Закрыта";
-        nameSpan.appendChild(document.createTextNode(" "));
-        nameSpan.appendChild(badge);
+        badge.className = "topic-badge closed";
+        badge.innerText = "Закрыта";
+        titleDiv.appendChild(document.createTextNode(" "));
+        titleDiv.appendChild(badge);
       }
       
-      // Обновляем кнопку админа если она есть
-      const closeBtn = chatElement.querySelector(".chat-action-btn");
+      const closeBtn = chatElement.querySelector(".topic-action-btn");
       if (closeBtn) {
         closeBtn.innerHTML = "🔓";
-        closeBtn.title = "Открыть чат";
+        closeBtn.title = "Открыть тему";
       }
     } else {
-      chatElement.classList.remove("closed-chat");
+      chatElement.classList.remove("closed-topic");
       
-      // Удаляем бейдж "🔒 Закрыта"
-      let nameSpan = chatElement.querySelector("span:first-child");
-      let badge = nameSpan?.querySelector(".closed-badge");
+      let titleDiv = chatElement.querySelector(".topic-title");
+      let badge = titleDiv?.querySelector(".topic-badge");
       if (badge) {
         badge.remove();
-        // Удаляем пробел перед badge
-        const lastChild = nameSpan.lastChild;
-        if (lastChild?.nodeType === 3 && lastChild.textContent.trim() === "") {
-          lastChild.remove();
-        }
       }
       
-      // Обновляем кнопку админа если она есть
-      const closeBtn = chatElement.querySelector(".chat-action-btn");
+      const closeBtn = chatElement.querySelector(".topic-action-btn");
       if (closeBtn) {
         closeBtn.innerHTML = "🔒";
-        closeBtn.title = "Закрыть чат";
+        closeBtn.title = "Закрыть тему";
       }
     }
     
-    // Мигание для привлечения внимания
     chatElement.style.transition = "background 0.5s ease";
     chatElement.style.background = "#e3f2fd";
     setTimeout(() => {
@@ -609,17 +602,14 @@ function updateChatInUI(chat) {
     }, 500);
   }
   
-  // Обновляем название если пришло
   if (chat.name) {
-    let nameSpan = chatElement.querySelector("span:first-child");
-    if (nameSpan) {
-      // Сохраняем badge если есть
-      let badge = nameSpan.querySelector(".closed-badge");
+    let titleDiv = chatElement.querySelector(".topic-title");
+    if (titleDiv) {
+      let badge = titleDiv.querySelector(".topic-badge");
       let badgeHTML = badge ? badge.outerHTML : "";
       
-      // Находим текстовый узел с названием
-      for (let node of nameSpan.childNodes) {
-        if (node.nodeType === 3) { // текстовый узел
+      for (let node of titleDiv.childNodes) {
+        if (node.nodeType === 3) {
           node.textContent = chat.name;
           break;
         }
@@ -629,18 +619,14 @@ function updateChatInUI(chat) {
   
   console.log("Chat updated successfully");
   
-  // Если мы находимся в этом чате - обновляем статус
   if (currentChatId === chat.id && window.currentChatData) {
     console.log("Updating current chat status");
     
-    // Обновляем только полученные поля
     Object.assign(window.currentChatData, chat);
     
-    // Удаляем старое уведомление о закрытии
-    const oldClosedNotice = document.querySelector(".closed-chat-notice");
+    const oldClosedNotice = document.querySelector(".closed-notice");
     if (oldClosedNotice) oldClosedNotice.remove();
     
-    // Проверяем закрыт ли чат (учитываем 0/1 и true/false)
     const isClosed = chat.is_closed === true || chat.is_closed === 1;
     
     if (isClosed && currentUser && currentUser.role !== "admin") {
@@ -657,62 +643,62 @@ function updateChatInUI(chat) {
 function createChatListItem(chat) {
   console.log("createChatListItem called with:", chat);
   
-  const li = document.createElement("li");
+  const li = document.createElement("div"); // ИЗМЕНЕНО: теперь div
+  li.className = "topic-item"; // ИЗМЕНЕНО
   li.dataset.chatId = chat.id;
   
-  // Проверяем и число и boolean
   const isClosed = chat.is_closed === true || chat.is_closed === 1;
   
-  // Добавляем класс для закрытого чата
   if (isClosed) {
-    li.classList.add("closed-chat");
+    li.classList.add("closed-topic");
     console.log("Chat is closed:", chat.id);
   }
   
-  const nameSpan = document.createElement("span");
-  nameSpan.innerText = chat.name;
-  nameSpan.style.flex = "1";
+  const mainDiv = document.createElement("div");
+  mainDiv.className = "topic-main";
+  mainDiv.onclick = () => openChat(chat);
   
-  // Добавляем индикатор закрытого чата
+  const titleDiv = document.createElement("div");
+  titleDiv.className = "topic-title";
+  titleDiv.innerText = chat.name;
+  
   if (isClosed) {
     const closedBadge = document.createElement("span");
-    closedBadge.className = "closed-badge";
-    closedBadge.innerText = "🔒 Закрыта";
-    nameSpan.appendChild(document.createTextNode(" "));
-    nameSpan.appendChild(closedBadge);
+    closedBadge.className = "topic-badge closed";
+    closedBadge.innerText = "Закрыта";
+    titleDiv.appendChild(document.createTextNode(" "));
+    titleDiv.appendChild(closedBadge);
   }
   
-  li.appendChild(nameSpan);
+  const metaDiv = document.createElement("div");
+  metaDiv.className = "topic-meta";
+  metaDiv.innerText = `Создана ${formatTime(chat.created_at)}`;
+  
+  mainDiv.appendChild(titleDiv);
+  mainDiv.appendChild(metaDiv);
+  li.appendChild(mainDiv);
   
   // Для админа добавляем кнопки управления
   if (currentUser && currentUser.role === "admin") {
     const actions = document.createElement("div");
-    actions.style.display = "flex";
-    actions.style.gap = "8px";
-    actions.style.marginLeft = "10px";
-    actions.style.flexShrink = "0";
+    actions.className = "topic-actions";
     
-    // Кнопка закрытия чата
     const closeBtn = document.createElement("button");
     closeBtn.innerHTML = isClosed ? "🔓" : "🔒";
-    closeBtn.title = isClosed ? "Открыть чат" : "Закрыть чат";
-    closeBtn.className = "chat-action-btn";
+    closeBtn.title = isClosed ? "Открыть тему" : "Закрыть тему";
+    closeBtn.className = "topic-action-btn";
     closeBtn.onclick = (e) => {
       e.stopPropagation();
-      
-      // ✅ ИСПРАВЛЕНИЕ: Читаем актуальное состояние из DOM
-      const chatElement = e.target.closest('li');
-      const isCurrentlyClosed = chatElement.classList.contains('closed-chat');
-      
+      const chatElement = e.target.closest('.topic-item');
+      const isCurrentlyClosed = chatElement.classList.contains('closed-topic');
       console.log(`Chat ${chat.id} currently closed: ${isCurrentlyClosed}, toggling to: ${!isCurrentlyClosed}`);
       toggleChatClosed(chat.id, !isCurrentlyClosed);
     };
     
-    // Кнопка удаления чата
     const deleteBtn = document.createElement("button");
     deleteBtn.innerHTML = "🗑️";
-    deleteBtn.title = "Удалить чат";
-    deleteBtn.className = "chat-action-btn delete";
+    deleteBtn.title = "Удалить тему";
+    deleteBtn.className = "topic-action-btn";
     deleteBtn.onclick = (e) => {
       e.stopPropagation();
       deleteChat(chat.id);
@@ -722,11 +708,6 @@ function createChatListItem(chat) {
     actions.appendChild(deleteBtn);
     li.appendChild(actions);
   }
-  
-  li.style.display = "flex";
-  li.style.alignItems = "center";
-  
-  li.onclick = () => openChat(chat);
   
   console.log("Chat list item created:", li);
   return li;
@@ -962,12 +943,11 @@ function updateBanNotice(timeLeft) {
 function showMuteNotice(message, isBan = false, endTime = null) {
   console.log("showMuteNotice:", message, "isBan:", isBan, "endTime:", endTime);
   
-  // Удаляем старое уведомление если есть
   const oldNotice = document.querySelector(".mute-notice");
   if (oldNotice) oldNotice.remove();
 
-  const messagesDiv = getElement("messages");
-  if (!messagesDiv) return;
+  const container = getElement("mute-notice-container"); // ИЗМЕНЕНО
+  if (!container) return;
 
   const notice = document.createElement("div");
   notice.className = "mute-notice" + (isBan ? " banned" : "");
@@ -986,29 +966,45 @@ function showMuteNotice(message, isBan = false, endTime = null) {
     notice.innerText = message;
   }
   
-  const messageHeader = messagesDiv.querySelector(".message-header");
-  if (messageHeader) {
-    messageHeader.after(notice);
-    console.log("Mute notice added to DOM");
+  container.innerHTML = "";
+  container.appendChild(notice);
+  console.log("Mute notice added to DOM");
+}
+
+function showClosedChatNotice() {
+  const container = getElement("mute-notice-container");
+  if (!container) return;
+
+  const notice = document.createElement("div");
+  notice.className = "closed-notice";
+  notice.innerHTML = "🔒 <strong>Тема закрыта</strong><br>Вы можете читать сообщения, но не можете отправлять новые";
+  
+  container.innerHTML = "";
+  container.appendChild(notice);
+}
+
+
+function disableMessageInput() {
+  const input = getElement("post-input"); // ИЗМЕНЕНО
+  const replyForm = document.querySelector(".reply-form");
+  
+  if (input) input.disabled = true;
+  if (replyForm) {
+    const btn = replyForm.querySelector("button");
+    if (btn) btn.disabled = true;
   }
 }
 
-function disableMessageInput() {
-  const input = getElement("message-text");
-  const button = getElement("send-message-btn");
-  
-  if (input) input.disabled = true;
-  if (button) button.disabled = true;
-}
-
 function enableMessageInput() {
-  const input = getElement("message-text");
-  const button = getElement("send-message-btn");
+  const input = getElement("post-input"); // ИЗМЕНЕНО
+  const replyForm = document.querySelector(".reply-form");
   
   if (input) input.disabled = false;
-  if (button) button.disabled = false;
+  if (replyForm) {
+    const btn = replyForm.querySelector("button");
+    if (btn) btn.disabled = false;
+  }
   
-  // Очищаем таймеры
   if (muteTimer) {
     clearInterval(muteTimer);
     muteTimer = null;
@@ -1018,12 +1014,13 @@ function enableMessageInput() {
     banTimer = null;
   }
   
-  // ✅ ДОБАВИТЬ: Очищаем localStorage
   localStorage.removeItem("muteInfo");
   
-  // Удаляем уведомление
   const notice = document.querySelector(".mute-notice");
   if (notice) notice.remove();
+  
+  const closedNotice = document.querySelector(".closed-notice");
+  if (closedNotice) closedNotice.remove();
 }
 
 
@@ -1037,7 +1034,6 @@ async function openChat(chat) {
   muteEndTime = null;
   banEndTime = null;
   
-  // Очищаем таймеры если были
   if (muteTimer) {
     clearInterval(muteTimer);
     muteTimer = null;
@@ -1047,32 +1043,46 @@ async function openChat(chat) {
     banTimer = null;
   }
 
-  const chatsDiv = getElement("chats");
-  const messagesDiv = getElement("messages");
-  const chatTitle = getElement("chat-title");
+  const forumDiv = getElement("forum"); // ИЗМЕНЕНО
+  const threadDiv = getElement("thread"); // ИЗМЕНЕНО
+  const chatTitle = getElement("thread-title"); // ИЗМЕНЕНО
 
-  if (!chatsDiv || !messagesDiv || !chatTitle) return;
+  if (!forumDiv || !threadDiv || !chatTitle) return;
 
-  chatsDiv.classList.add("hidden");
-  messagesDiv.classList.remove("hidden");
+  forumDiv.classList.add("hidden");
+  threadDiv.classList.remove("hidden");
   chatTitle.innerText = chat.name;
   
-  // Удаляем старые уведомления
+  // Обновляем статус темы
+  const statusEl = getElement("thread-status");
+  if (statusEl) {
+    statusEl.textContent = chat.is_closed ? "🔒 Тема закрыта" : "💬 Активная тема";
+  }
+  
+  // Админские кнопки
+  const actionsEl = getElement("thread-admin-actions");
+  if (actionsEl && currentUser?.role === "admin") {
+    const isClosed = chat.is_closed === true || chat.is_closed === 1;
+    actionsEl.innerHTML = `
+      <button class="topic-action-btn" onclick="toggleChatClosed(${chat.id}, ${!isClosed})" title="${isClosed ? 'Открыть' : 'Закрыть'}">
+        ${isClosed ? '🔓' : '🔒'}
+      </button>
+    `;
+  }
+  
   const oldNotice = document.querySelector(".mute-notice");
   if (oldNotice) oldNotice.remove();
   
   const oldClosedNotice = document.querySelector(".closed-chat-notice");
   if (oldClosedNotice) oldClosedNotice.remove();
   
-  // Сохраняем информацию о чате для обработки обновлений
   window.currentChatData = chat;
   
-  // ✅ ДОБАВИТЬ: Проверяем сохраненный мут
+  // Проверяем мут из localStorage
   const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
   if (muteInfo && muteInfo.until) {
     const muteUntilDate = new Date(muteInfo.until);
     if (Date.now() < muteUntilDate.getTime()) {
-      // Мут еще активен
       console.log("Restoring mute from localStorage:", muteInfo);
       isMuted = true;
       muteEndTime = muteUntilDate;
@@ -1080,17 +1090,14 @@ async function openChat(chat) {
       startMuteTimer();
       disableMessageInput();
     } else {
-      // Мут истек
       localStorage.removeItem("muteInfo");
     }
   }
   
-  // Если чат закрыт и пользователь не админ - показываем уведомление
   if (chat.is_closed && currentUser && currentUser.role !== "admin") {
     showClosedChatNotice();
     disableMessageInput();
   } else if (!isMuted && !isBanned) {
-    // Разблокируем только если нет мута/бана
     enableMessageInput();
   }
 
@@ -1120,14 +1127,13 @@ async function loadMessages(chatId) {
     });
     const messages = await res.json();
     
-    const list = getElement("message-list");
+    const list = getElement("posts-list"); // ИЗМЕНЕНО: было "message-list"
     if (!list) return;
     
     list.innerHTML = "";
     
     if (messages.length === 0) {
-      list.innerHTML =
-        '<div style="text-align: center; color: #999; padding: 40px;">Нет сообщений. Напишите первое!</div>';
+      list.innerHTML = '<div class="empty-state">📝 Пока нет сообщений. Начните обсуждение!</div>';
       return;
     }
     
@@ -1137,83 +1143,64 @@ async function loadMessages(chatId) {
   }
 }
 
+
 function renderMessage(message) {
-  const list = getElement("message-list");
+  const list = getElement("posts-list"); // ИЗМЕНЕНО
   if (!list) return;
 
-  // Проверяем, не существует ли уже это сообщение
   const existing = list.querySelector(`[data-id="${message.id}"]`);
   if (existing) return;
 
   const div = document.createElement("div");
-  div.className = "message-item";
+  div.className = "post-item"; // ИЗМЕНЕНО
   div.dataset.id = message.id;
 
   if (message.deleted_at) {
     div.classList.add("deleted");
   }
 
-  const headerInfo = document.createElement("div");
-  headerInfo.className = "message-header-info";
-
-  const authorAndTime = document.createElement("div");
-  authorAndTime.className = "author-time-group";
-
-  const author = document.createElement("span");
-  author.className = "message-author";
-  author.innerText = message.email || "Неизвестно";
-
-  const time = document.createElement("span");
-  time.className = "message-time";
-  time.innerText = formatTime(message.created_at);
-
-  authorAndTime.appendChild(author);
-  authorAndTime.appendChild(time);
-  headerInfo.appendChild(authorAndTime);
-
-  const textDiv = document.createElement("div");
-  textDiv.className = "message-text";
-  textDiv.innerText = message.deleted_at ? "Сообщение удалено" : message.text;
-
-  div.appendChild(headerInfo);
-  div.appendChild(textDiv);
+  // Новая структура для форума
+  div.innerHTML = `
+    <div class="post-header">
+      <span class="post-author${message.user_role === 'admin' ? ' admin' : ''}">${escapeHtml(message.email || "Неизвестно")}</span>
+      <span class="post-time">${formatTime(message.created_at)}</span>
+    </div>
+    <div class="post-content">${message.deleted_at ? "Сообщение удалено" : escapeHtml(message.text)}</div>
+  `;
 
   // Добавляем кнопки действий если есть права
   if (!message.deleted_at) {
     const actions = document.createElement("div");
-    actions.className = "message-actions";
+    actions.className = "post-actions"; // ИЗМЕНЕНО
 
-    // Кнопка редактирования (только для своих сообщений)
     if (canEditMessage(message)) {
       const editBtn = document.createElement("button");
-      editBtn.className = "edit-btn";
+      editBtn.className = "post-action-btn edit"; // ИЗМЕНЕНО
       editBtn.dataset.id = message.id;
       editBtn.innerHTML = "✏️";
       editBtn.title = "Редактировать";
       actions.appendChild(editBtn);
     }
 
-    // Кнопка удаления
     if (canDeleteMessage(message)) {
       const deleteBtn = document.createElement("button");
-      deleteBtn.className = "delete-btn";
+      deleteBtn.className = "post-action-btn delete"; // ИЗМЕНЕНО
       deleteBtn.dataset.id = message.id;
-      deleteBtn.innerHTML = "✖";
+      deleteBtn.innerHTML = "🗑️";
       deleteBtn.title = "Удалить";
       actions.appendChild(deleteBtn);
     }
 
-    // Кнопки мута/бана для админа
     if (currentUser && currentUser.role === "admin" && message.user_id !== currentUser.id) {
       const muteBtn = document.createElement("button");
-      muteBtn.className = "mute-btn";
+      muteBtn.className = "post-action-btn mute"; // ИЗМЕНЕНО
       muteBtn.dataset.userId = message.user_id;
       muteBtn.innerHTML = "🔇";
       muteBtn.title = "Мут";
       actions.appendChild(muteBtn);
 
       const banBtn = document.createElement("button");
-      banBtn.className = "ban-btn";
+      banBtn.className = "post-action-btn ban"; // ИЗМЕНЕНО
       banBtn.dataset.userId = message.user_id;
       banBtn.innerHTML = "🚫";
       banBtn.title = "Бан";
@@ -1226,7 +1213,12 @@ function renderMessage(message) {
   }
 
   list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
+  
+  // Скролл вниз
+  const container = getElement("posts-container");
+  if (container) {
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 function canDeleteMessage(message) {
@@ -1242,17 +1234,17 @@ function canEditMessage(message) {
 }
 
 function markMessageDeleted(messageId) {
-  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  const msg = document.querySelector(`.post-item[data-id="${messageId}"]`); // ИЗМЕНЕНО
   if (!msg) return;
 
   msg.classList.add("deleted");
   
-  const textEl = msg.querySelector(".message-text");
+  const textEl = msg.querySelector(".post-content"); // ИЗМЕНЕНО
   if (textEl) {
     textEl.innerText = "Сообщение удалено";
   }
 
-  const actions = msg.querySelector(".message-actions");
+  const actions = msg.querySelector(".post-actions"); // ИЗМЕНЕНО
   if (actions) {
     actions.remove();
   }
@@ -1260,19 +1252,18 @@ function markMessageDeleted(messageId) {
 
 function updateMessageText(messageId, newText) {
   console.log("Updating message text:", messageId, newText);
-  const msg = document.querySelector(`.message-item[data-id="${messageId}"]`);
+  const msg = document.querySelector(`.post-item[data-id="${messageId}"]`); // ИЗМЕНЕНО
   if (!msg) {
     console.log("Message not found:", messageId);
     return;
   }
 
-    const textEl = msg.querySelector(".message-text");
+  const textEl = msg.querySelector(".post-content"); // ИЗМЕНЕНО
   if (textEl) {
     console.log("Old text:", textEl.textContent);
     textEl.textContent = newText;
     console.log("New text:", textEl.textContent);
   }
-
 }
 
 async function sendMessage() {
@@ -1281,7 +1272,7 @@ async function sendMessage() {
     return;
   }
 
-  const textInput = getElement("message-text");
+  const textInput = getElement("post-input"); // ИЗМЕНЕНО: было "message-text"
   if (!textInput) return;
 
   const text = textInput.value.trim();
@@ -1300,14 +1291,12 @@ async function sendMessage() {
     if (!res.ok) {
       const data = await res.json();
       
-      // Проверяем на мут/бан от сервера
       if (data.message && (data.message.includes("мут") || data.message.includes("бан"))) {
         alert(data.message);
         disableMessageInput();
         return;
       }
       
-      // Проверяем закрыт ли чат
       if (data.message && data.message.includes("закрыт")) {
         alert("Чат закрыт для отправки сообщений");
         disableMessageInput();
@@ -1524,31 +1513,29 @@ async function deleteMessage(messageId) {
 // Выход из чата
 // ==============================
 function leaveChat() {
-  const messagesDiv = getElement("messages");
-  const chatsDiv = getElement("chats");
-  const messageList = getElement("message-list");
+  const threadDiv = getElement("thread"); // ИЗМЕНЕНО
+  const forumDiv = getElement("forum"); // ИЗМЕНЕНО
+  const messageList = getElement("posts-list"); // ИЗМЕНЕНО
 
-  if (!messagesDiv || !chatsDiv || !messageList) return;
+  if (!threadDiv || !forumDiv || !messageList) return;
 
-  // Добавляем анимацию выхода
-  messagesDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
-  messagesDiv.style.opacity = "0";
-  messagesDiv.style.transform = "translateX(20px)";
+  threadDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+  threadDiv.style.opacity = "0";
+  threadDiv.style.transform = "translateX(20px)";
   
   setTimeout(() => {
-    messagesDiv.classList.add("hidden");
-    messagesDiv.style.opacity = "";
-    messagesDiv.style.transform = "";
+    threadDiv.classList.add("hidden");
+    threadDiv.style.opacity = "";
+    threadDiv.style.transform = "";
     
-    // Анимация появления списка чатов
-    chatsDiv.classList.remove("hidden");
-    chatsDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
-    chatsDiv.style.opacity = "0";
-    chatsDiv.style.transform = "translateX(-20px)";
+    forumDiv.classList.remove("hidden");
+    forumDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+    forumDiv.style.opacity = "0";
+    forumDiv.style.transform = "translateX(-20px)";
     
     setTimeout(() => {
-      chatsDiv.style.opacity = "1";
-      chatsDiv.style.transform = "translateX(0)";
+      forumDiv.style.opacity = "1";
+      forumDiv.style.transform = "translateX(0)";
     }, 10);
   }, 300);
   
@@ -1561,7 +1548,6 @@ function leaveChat() {
   banEndTime = null;
   window.currentChatData = null;
 
-  // Очищаем таймеры
   if (muteTimer) {
     clearInterval(muteTimer);
     muteTimer = null;
@@ -1577,90 +1563,69 @@ function leaveChat() {
   }
 }
 
+// Алиас
+function backToForum() {
+  leaveChat();
+}
+
+
 
 // ==============================
 // Инициализация после загрузки DOM
 // ==============================
 document.addEventListener("DOMContentLoaded", () => {
-  // Проверяем токен и загружаем пользователя
-    if (token) {
+  if (token) {
     const userData = localStorage.getItem("user");
     if (userData) {
       currentUser = JSON.parse(userData);
       checkBanStatus();
       
-      // ✓ ПРОВЕРЯЕМ СОХРАНЁННЫЙ МУТ
       const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
       if (muteInfo && muteInfo.until) {
-        const muteUntil = new Date(muteInfo.until);
-        if (Date.now() < muteUntil.getTime()) {
-          // Мут ещё активен
+        const muteUntilDate = new Date(muteInfo.until);
+        if (Date.now() < muteUntilDate.getTime()) {
           isMuted = true;
-          muteEndTime = muteUntil;
+          muteEndTime = muteUntilDate;
           showMuteNotice(muteInfo.message, false, muteUntil);
           disableMessageInput();
           startMuteTimer();
         } else {
-          // Мут истёк
           localStorage.removeItem("muteInfo");
         }
       }
       
-      // Подключаем WebSocket для списка чатов
       initChatsWS();
-
-      
       showChats();
     }
   } else {
-    // Показываем предупреждение о бане если есть
     checkBanStatus();
   }
 
-  // Слушатели кнопок
-  const loginBtn = getElement("login-btn");
-  const registerBtn = getElement("register-btn");
-  const chatCreateBtn = getElement("chat-create-btn");
-  const sendMessageBtn = getElement("send-message-btn");
-  const leaveChatBtn = getElement("leave-chat-btn");
-
-  if (loginBtn) loginBtn.addEventListener("click", login);
-  if (registerBtn) registerBtn.addEventListener("click", register);
-  if (chatCreateBtn) chatCreateBtn.addEventListener("click", createChat);
-  if (sendMessageBtn) sendMessageBtn.addEventListener("click", sendMessage);
-  if (leaveChatBtn) leaveChatBtn.addEventListener("click", leaveChat);
-
-  // Скрываем создание чата для не-админов при загрузке
-  const chatNameInput = getElement("chat-name");
-  if (currentUser && currentUser.role !== "admin") {
-    if (chatNameInput) chatNameInput.style.display = "none";
-    if (chatCreateBtn) chatCreateBtn.style.display = "none";
-  }
-
-  // Делегирование события для кнопок действий
+  // Делегирование кликов
   document.addEventListener("click", (e) => {
-    if (e.target.classList.contains("delete-btn")) {
-      const messageId = e.target.dataset.id;
+    // Новые классы для кнопок постов
+    if (e.target.classList.contains("delete-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🗑️") {
+      const messageId = e.target.dataset.id || e.target.closest('[data-id]')?.dataset.id;
       if (messageId) {
         deleteMessage(messageId);
       }
     }
     
-    if (e.target.classList.contains("edit-btn")) {
-      const messageId = e.target.dataset.id;
+    if (e.target.classList.contains("edit-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "✏️") {
+      const messageId = e.target.dataset.id || e.target.closest('[data-id]')?.dataset.id;
       if (messageId) {
         editMessage(messageId);
       }
     }
 
-    if (e.target.classList.contains("mute-btn")) {
+    if (e.target.classList.contains("mute-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🔇") {
       const userId = e.target.dataset.userId;
       if (userId) {
         muteUser(userId);
       }
     }
 
-    if (e.target.classList.contains("ban-btn")) {
+    if (e.target.classList.contains("ban-btn") || e.target.classList.contains("post-action-btn") && e.target.textContent === "🚫") {
       const userId = e.target.dataset.userId;
       if (userId) {
         banUser(userId);
@@ -1668,20 +1633,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Enter для отправки сообщения
-  const messageText = getElement("message-text");
-  if (messageText) {
-    messageText.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") {
+  // Enter для отправки
+  const postInput = getElement("post-input"); // ИЗМЕНЕНО
+  if (postInput) {
+    postInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
         sendMessage();
       }
     });
   }
 
-  // Enter для создания чата
-  const chatName = getElement("chat-name");
-  if (chatName) {
-    chatName.addEventListener("keypress", (e) => {
+  // Enter для создания темы
+  const topicName = getElement("topic-name"); // ИЗМЕНЕНО
+  if (topicName) {
+    topicName.addEventListener("keypress", (e) => {
       if (e.key === "Enter") {
         createChat();
       }

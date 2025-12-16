@@ -1,51 +1,90 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat App</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Форум</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <!-- Авторизация -->
-    <div id="auth">
-      <h2>Вход / Регистрация</h2>
-      <input id="email" type="email" placeholder="Email" autocomplete="email">
-      <input id="password" type="password" placeholder="Пароль" autocomplete="current-password">
-      <div>
-        <button id="login-btn">Войти</button>
-        <button id="register-btn">Регистрация</button>
-      </div>
-      <div id="auth-error" class="error"></div>
-    </div>
-
-    <!-- Список чатов -->
-    <div id="chats" class="hidden">
-      <div class="chat-header">
-        <h2>Чаты</h2>
-        <div class="chat-create">
-          <input id="chat-name" type="text" placeholder="Название чата" autocomplete="off">
-          <button id="chat-create-btn">Создать</button>
+    <!-- Auth Screen -->
+    <div id="auth" class="screen">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="auth-header">
+                    <h1>🗨️ Добро пожаловать</h1>
+                    <p>Войдите или создайте аккаунт</p>
+                </div>
+                <div class="auth-body">
+                    <input type="email" id="email" placeholder="Email">
+                    <input type="password" id="password" placeholder="Пароль">
+                    <div id="auth-error" class="error"></div>
+                    <div class="auth-actions">
+                        <button onclick="login()" class="btn-primary">Войти</button>
+                        <button onclick="register()" class="btn-secondary">Регистрация</button>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
-      <ul id="chat-list"></ul>
     </div>
 
-    <!-- Сообщения -->
-    <div id="messages" class="hidden">
-      <div class="message-header">
-        <h2 id="chat-title">Чат</h2>
-        <button id="leave-chat-btn">← Назад</button>
-      </div>
-      <div id="message-list"></div>
-      <div class="message-input">
-        <input id="message-text" type="text" placeholder="Введите сообщение..." autocomplete="off">
-        <button id="send-message-btn">Отправить</button>
-      </div>
-    </div>
-  </div>
+    <!-- Forum Screen -->
+    <div id="forum" class="screen hidden">
+        <div class="forum-container">
+            <!-- Header -->
+            <header class="forum-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="forum-title">🗨️ Форум</h1>
+                        <span class="user-badge" id="user-info"></span>
+                    </div>
+                    <button onclick="logout()" class="btn-logout">Выйти</button>
+                </div>
+            </header>
 
-  <script src="script.js" ></script>
+            <!-- Topics List -->
+            <div class="forum-main">
+                <div class="topics-section">
+                    <div class="section-header">
+                        <h2>Темы форума</h2>
+                        <div id="create-topic-container" class="create-topic" style="display: none;">
+                            <input type="text" id="topic-name" placeholder="Название новой темы...">
+                            <button onclick="createTopic()" class="btn-create">+ Создать тему</button>
+                        </div>
+                    </div>
+                    <div id="topics-list" class="topics-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thread Screen -->
+    <div id="thread" class="screen hidden">
+        <div class="thread-container">
+            <!-- Thread Header -->
+            <div class="thread-header">
+                <button onclick="backToForum()" class="btn-back">← Назад к темам</button>
+                <div class="thread-info">
+                    <h2 id="thread-title"></h2>
+                    <div id="thread-status" class="thread-status"></div>
+                </div>
+                <div class="thread-actions" id="thread-admin-actions"></div>
+            </div>
+
+            <!-- Posts List -->
+            <div id="posts-container" class="posts-container">
+                <div id="mute-notice-container"></div>
+                <div id="posts-list" class="posts-list"></div>
+            </div>
+
+            <!-- Reply Form -->
+            <div class="reply-form" id="reply-form">
+                <input type="text" id="post-input" placeholder="Написать сообщение...">
+                <button onclick="sendMessage()" class="btn-send">Отправить</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
 </body>
 </html>
