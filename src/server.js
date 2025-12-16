@@ -10,22 +10,13 @@ const wss = new WebSocketServer({ server });
 
 app.set("wss", wss);
 
-const checkUserStatus = async (userId) => {
-  const now = new Date().toISOString();
-  const user = await db.get("SELECT muted_until, banned_until FROM users WHERE id = ?", [userId]);
-  return {
-    muted: user?.muted_until && user.muted_until > now,
-    banned: user?.banned_until && user.banned_until > now
-  };
-};
+const getUserStatus = async (userId) => {
+  const user = await db.get(
+    "SELECT muted_until, banned_until FROM users WHERE id = ?",
+    [userId]
+  );
 
-// --- Отправка событий всем клиентам (обновления чатов)
-export const broadcastChatEvent = (type, payload) => {
-  wss.clients.forEach(client => {
-    if (client.readyState === 1) {
-      client.send(JSON.stringify({ type, ...payload }));
-    }
-  });
+  return user;
 };
 
 wss.on("connection", (ws) => {
@@ -34,42 +25,88 @@ wss.on("connection", (ws) => {
   ws.userId = null;
   ws.role = null;
 
-  ws.on("pong", () => ws.isAlive = true);
+  ws.on("pong", () => (ws.isAlive = true));
 
   ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg);
 
+      // AUTH
       if (data.type === "AUTH") {
-        const payload = jwt.verify(data.token, process.env.JWT_SECRET);
-        ws.userId = payload.id;
-        ws.role = payload.role;
+        const decoded = jwt.verify(data.token, process.env.JWT_SECRET);
+        ws.userId = decoded.id;
+        ws.role = decoded.role;
 
-        const status = await checkUserStatus(ws.userId);
-        if (status.banned) {
-          ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
+        const status = await getUserStatus(ws.userId);
+        const now = new Date().toISOString();
+
+        if (status?.banned_until && status.banned_until > now) {
+          ws.send(JSON.stringify({
+            type: "BANNED",
+            payload: {
+              userId: ws.userId,
+              bannedUntil: new Date(status.banned_until).toISOString(),
+              message: "Вы заблокированы"
+            }
+          }));
           return ws.close();
         }
-        if (status.muted) {
-          ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
+
+        if (status?.muted_until && status.muted_until > now) {
+          ws.send(JSON.stringify({
+            type: "MUTED",
+            payload: {
+              userId: ws.userId,
+              mutedUntil: new Date(status.muted_until).toISOString(),
+              message: "Вы в муте"
+            }
+          }));
         }
       }
 
+      // JOIN CHAT
       if (data.type === "JOIN_CHAT") {
         ws.chatId = data.chatId;
       }
 
+      // SEND MESSAGE
       if (data.type === "SEND_MESSAGE") {
         if (!ws.userId || !ws.chatId) return;
 
-        const status = await checkUserStatus(ws.userId);
-        if (status.banned) return ws.send(JSON.stringify({ type: "BANNED", message: "Вы заблокированы" }));
-        if (status.muted) return ws.send(JSON.stringify({ type: "MUTED", message: "Вы в муте" }));
+        const status = await getUserStatus(ws.userId);
+        const now = new Date().toISOString();
 
-        // Рассылка сообщения всем в чате
+        if (status?.banned_until && status.banned_until > now) {
+          return ws.send(JSON.stringify({
+            type: "BANNED",
+            payload: {
+              userId: ws.userId,
+              bannedUntil: new Date(status.banned_until).toISOString(),
+              message: "Вы заблокированы"
+            }
+          }));
+        }
+
+        if (status?.muted_until && status.muted_until > now) {
+          return ws.send(JSON.stringify({
+            type: "MUTED",
+            payload: {
+              userId: ws.userId,
+              mutedUntil: new Date(status.muted_until).toISOString(),
+              message: "Вы в муте"
+            }
+          }));
+        }
+
         wss.clients.forEach(client => {
-          if (client.readyState === 1 && client.chatId === ws.chatId) {
-            client.send(JSON.stringify({ type: "NEW_MESSAGE", payload: data.payload }));
+          if (
+            client.readyState === 1 &&
+            client.chatId === ws.chatId
+          ) {
+            client.send(JSON.stringify({
+              type: "NEW_MESSAGE",
+              payload: data.payload
+            }));
           }
         });
       }
@@ -80,7 +117,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-// Пинг для поддержания соединений живыми
+// ping
 setInterval(() => {
   wss.clients.forEach(ws => {
     if (!ws.isAlive) return ws.terminate();
@@ -90,5 +127,5 @@ setInterval(() => {
 }, 30000);
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -4,15 +4,21 @@ export const createMessage = (text, chatId, userId) => {
   return db.run("INSERT INTO messages (text, chat_id, user_id) VALUES (?, ?, ?)", [text, chatId, userId]);
 };
 
-export const getChatMessages = (chatId) => {
-  return db.all(`
+export const getChatMessages = async (chatId) => {
+  const messages = await db.all(`
     SELECT messages.*, users.email
     FROM messages
     JOIN users ON users.id = messages.user_id
     WHERE chat_id = ?
     ORDER BY created_at ASC
   `, [chatId]);
+
+  return messages.map(msg => ({
+    ...msg,
+    created_at: new Date(msg.created_at).toISOString()
+  }));
 };
+
 
 export const getMessageById = (id) => {
   return db.get(`

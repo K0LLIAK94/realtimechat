@@ -1,8 +1,10 @@
 import {
   createChat,
   getAllChats,
-  deleteChat
+  deleteChat,
+  setChatClosed
 } from "../services/chat.service.js";
+import { getChatById } from "../services/chat.service.js";
 
 // Только админ создаёт чаты
 export const create = async (req, res) => {
@@ -10,24 +12,29 @@ export const create = async (req, res) => {
   const userId = req.user.id;
 
   const result = await createChat(name, description, userId);
+  const chat = await getChatById(result.lastID);
 
-  const chat = {
-    id: result.lastID,
-    name,
-    description,
-    is_closed: false,
-    created_at: new Date().toISOString()
+  const payload = {
+    id: chat.id,
+    name: chat.name,
+    is_closed: chat.is_closed,
+    created_at: new Date(chat.created_at).toISOString()
   };
 
-  // Отправка события всем клиентам WS (список чатов)
   const wss = req.app.get("wss");
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
-      client.send(JSON.stringify({ type: "NEW_CHAT", payload: chat }));
+      client.send(JSON.stringify({
+        type: "NEW_CHAT",
+        payload
+      }));
     }
   });
 
-  res.status(201).json({ message: "Чат создан", chat });
+  res.status(201).json({
+    message: "Чат создан",
+    chat: payload
+  });
 };
 
 // ВСЕ пользователи видят ВСЕ чаты
@@ -41,14 +48,12 @@ export const remove = async (req, res) => {
   const chatId = Number(req.params.id);
   await deleteChat(chatId);
 
-  // WS событие для всех клиентов
   const wss = req.app.get("wss");
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
       client.send(JSON.stringify({
         type: "CHAT_DELETED",
-        chatId,
-        message: "Чат был удалён администратором"
+        payload: { chatId }
       }));
     }
   });
@@ -61,20 +66,27 @@ export const closeChat = async (req, res) => {
   const chatId = Number(req.params.chatId);
 
   await setChatClosed(chatId, is_closed);
+  const chat = await getChatById(chatId);
 
-  // WS событие для всех клиентов
+  const payload = {
+    id: chat.id,
+    name: chat.name,
+    is_closed: chat.is_closed,
+    created_at: new Date(chat.created_at).toISOString()
+  };
+
   const wss = req.app.get("wss");
   wss.clients.forEach(client => {
     if (client.readyState === 1) {
       client.send(JSON.stringify({
         type: "CHAT_UPDATED",
-        payload: { id: chatId, is_closed }
+        payload
       }));
     }
   });
 
   res.json({
     message: is_closed ? "Чат закрыт" : "Чат открыт",
-    chat: { id: chatId, is_closed }
+    chat: payload
   });
 };

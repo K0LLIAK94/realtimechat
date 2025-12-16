@@ -20,9 +20,9 @@ export const login = async (req, res) => {
   if (user.banned_until && user.banned_until > now) {
     return res.status(403).json({
       banned: true,
-      ban_until: user.banned_until,
+      ban_until: new Date(user.banned_until).toISOString(),
       ban_reason: user.ban_reason,
-      message: `Вы заблокированы до ${user.banned_until}`
+      message: "Вы заблокированы"
     });
   }
 
@@ -34,6 +34,10 @@ export const login = async (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, email: user.email, role: user.role }
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role
+    }
   });
 };

@@ -12,7 +12,11 @@ import { getChatById } from "../services/chat.service.js";
 
 export const getAll = async (req, res) => {
   const messages = await getChatMessages(req.params.chatId);
-  res.json(messages);
+  res.json(messages.map(msg => ({
+  ...msg,
+  created_at: new Date(msg.created_at).toISOString()
+})));
+
 };
 
 export const create = async (req, res) => {

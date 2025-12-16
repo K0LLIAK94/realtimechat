@@ -38,7 +38,8 @@ function formatTime(timestamp) {
   const diff = now - date;
 
   // Показываем только время если сегодня
-  if (diff < 86400000 && date.getDate() === now.getDate()) {
+    // Показываем только время если сегодня
+  if (diff < 86400000 && date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
       minute: "2-digit",
@@ -46,7 +47,9 @@ function formatTime(timestamp) {
   }
 
   // Если вчера
-  if (diff < 172800000 && date.getDate() === now.getDate() - 1) {
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
     return (
       "Вчера " +
       date.toLocaleTimeString("ru-RU", {
@@ -55,6 +58,7 @@ function formatTime(timestamp) {
       })
     );
   }
+
 
   // Если в этом году - без года
   if (date.getFullYear() === now.getFullYear()) {
@@ -195,7 +199,9 @@ function checkBanStatus() {
 function logout() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
+  localStorage.removeItem("muteInfo"); // ✓ ДОБАВИТЬ
   token = null;
+
   currentUser = null;
   currentChatId = null;
   
@@ -381,8 +387,12 @@ function initChatsWS() {
     return;
   }
 
-  // Закрываем предыдущее соединение если есть
-  if (chatsWS && chatsWS.readyState === WebSocket.OPEN) {
+  // ✅ ДОБАВИТЬ: Закрываем предыдущее соединение если оно уже открыто
+  if (chatsWS) {
+    if (chatsWS.readyState === WebSocket.OPEN || chatsWS.readyState === WebSocket.CONNECTING) {
+      console.log("Chats WS already connected, skipping...");
+      return;
+    }
     chatsWS.close();
   }
 
@@ -392,6 +402,7 @@ function initChatsWS() {
     chatsWSReconnectTimer = null;
   }
 
+  console.log("🔌 Connecting to Chats WS...");
   chatsWS = new WebSocket("ws://localhost:3000");
 
   chatsWS.onopen = () => {
@@ -440,9 +451,11 @@ function handleChatEvent(data) {
       break;
       
     case "CHAT_DELETED":
-      console.log("Processing CHAT_DELETED:", data.chatId || data.payload?.id);
-      removeChatFromUI(data.chatId || data.payload?.id);
-      break;
+  const deletedChatId = data.chatId || data.payload?.chatId || data.payload?.id;
+  console.log("Processing CHAT_DELETED:", deletedChatId);
+  removeChatFromUI(deletedChatId);
+  break;
+
       
     case "CHAT_UPDATED":
       console.log("Processing CHAT_UPDATED:", data.payload);
@@ -532,47 +545,115 @@ function updateChatInUI(chat) {
 
   const chatElement = list.querySelector(`[data-chat-id="${chat.id}"]`);
   if (!chatElement) {
-    console.log("Chat not found in list, adding:", chat.id);
-    // Чата нет в списке - добавляем
-    addChatToUI(chat);
+    console.log("Chat not found in list:", chat.id);
+    if (chat.name) {
+      addChatToUI(chat);
+    }
     return;
   }
 
-  console.log("Updating existing chat:", chat.name);
-  // Обновляем существующий чат
-  const newItem = createChatListItem(chat);
-  newItem.dataset.chatId = chat.id; // Убедимся что data-chat-id установлен
+  console.log("Updating existing chat:", chat.id);
   
-  // Сохраняем позицию в списке
-  chatElement.replaceWith(newItem);
+  // ✅ Обновляем класс closed-chat (проверяем и boolean и число)
+  if (chat.hasOwnProperty('is_closed')) {
+    const isClosed = chat.is_closed === true || chat.is_closed === 1;
+    
+    if (isClosed) {
+      chatElement.classList.add("closed-chat");
+      
+      // Обновляем или добавляем бейдж "🔒 Закрыта"
+      let nameSpan = chatElement.querySelector("span:first-child");
+      let badge = nameSpan?.querySelector(".closed-badge");
+      
+      if (nameSpan && !badge) {
+        badge = document.createElement("span");
+        badge.className = "closed-badge";
+        badge.innerText = "🔒 Закрыта";
+        nameSpan.appendChild(document.createTextNode(" "));
+        nameSpan.appendChild(badge);
+      }
+      
+      // Обновляем кнопку админа если она есть
+      const closeBtn = chatElement.querySelector(".chat-action-btn");
+      if (closeBtn) {
+        closeBtn.innerHTML = "🔓";
+        closeBtn.title = "Открыть чат";
+      }
+    } else {
+      chatElement.classList.remove("closed-chat");
+      
+      // Удаляем бейдж "🔒 Закрыта"
+      let nameSpan = chatElement.querySelector("span:first-child");
+      let badge = nameSpan?.querySelector(".closed-badge");
+      if (badge) {
+        badge.remove();
+        // Удаляем пробел перед badge
+        const lastChild = nameSpan.lastChild;
+        if (lastChild?.nodeType === 3 && lastChild.textContent.trim() === "") {
+          lastChild.remove();
+        }
+      }
+      
+      // Обновляем кнопку админа если она есть
+      const closeBtn = chatElement.querySelector(".chat-action-btn");
+      if (closeBtn) {
+        closeBtn.innerHTML = "🔒";
+        closeBtn.title = "Закрыть чат";
+      }
+    }
+    
+    // Мигание для привлечения внимания
+    chatElement.style.transition = "background 0.5s ease";
+    chatElement.style.background = "#e3f2fd";
+    setTimeout(() => {
+      chatElement.style.background = "";
+    }, 500);
+  }
   
-  // Мигание для привлечения внимания
-  newItem.style.background = "#e3f2fd";
-  setTimeout(() => {
-    newItem.style.background = "";
-  }, 500);
+  // Обновляем название если пришло
+  if (chat.name) {
+    let nameSpan = chatElement.querySelector("span:first-child");
+    if (nameSpan) {
+      // Сохраняем badge если есть
+      let badge = nameSpan.querySelector(".closed-badge");
+      let badgeHTML = badge ? badge.outerHTML : "";
+      
+      // Находим текстовый узел с названием
+      for (let node of nameSpan.childNodes) {
+        if (node.nodeType === 3) { // текстовый узел
+          node.textContent = chat.name;
+          break;
+        }
+      }
+    }
+  }
   
   console.log("Chat updated successfully");
   
   // Если мы находимся в этом чате - обновляем статус
   if (currentChatId === chat.id && window.currentChatData) {
     console.log("Updating current chat status");
-    window.currentChatData = chat;
+    
+    // Обновляем только полученные поля
+    Object.assign(window.currentChatData, chat);
     
     // Удаляем старое уведомление о закрытии
     const oldClosedNotice = document.querySelector(".closed-chat-notice");
     if (oldClosedNotice) oldClosedNotice.remove();
     
-    // Если чат закрыт и пользователь не админ - показываем уведомление
-    if (chat.is_closed && currentUser && currentUser.role !== "admin") {
+    // Проверяем закрыт ли чат (учитываем 0/1 и true/false)
+    const isClosed = chat.is_closed === true || chat.is_closed === 1;
+    
+    if (isClosed && currentUser && currentUser.role !== "admin") {
       showClosedChatNotice();
       disableMessageInput();
     } else if (!isMuted && !isBanned) {
-      // Разблокируем только если нет мута/бана
       enableMessageInput();
     }
   }
 }
+
+
 
 function createChatListItem(chat) {
   console.log("createChatListItem called with:", chat);
@@ -580,8 +661,11 @@ function createChatListItem(chat) {
   const li = document.createElement("li");
   li.dataset.chatId = chat.id;
   
+  // Проверяем и число и boolean
+  const isClosed = chat.is_closed === true || chat.is_closed === 1;
+  
   // Добавляем класс для закрытого чата
-  if (chat.is_closed) {
+  if (isClosed) {
     li.classList.add("closed-chat");
     console.log("Chat is closed:", chat.id);
   }
@@ -591,7 +675,7 @@ function createChatListItem(chat) {
   nameSpan.style.flex = "1";
   
   // Добавляем индикатор закрытого чата
-  if (chat.is_closed) {
+  if (isClosed) {
     const closedBadge = document.createElement("span");
     closedBadge.className = "closed-badge";
     closedBadge.innerText = "🔒 Закрыта";
@@ -611,12 +695,18 @@ function createChatListItem(chat) {
     
     // Кнопка закрытия чата
     const closeBtn = document.createElement("button");
-    closeBtn.innerHTML = chat.is_closed ? "🔓" : "🔒";
-    closeBtn.title = chat.is_closed ? "Открыть чат" : "Закрыть чат";
+    closeBtn.innerHTML = isClosed ? "🔓" : "🔒";
+    closeBtn.title = isClosed ? "Открыть чат" : "Закрыть чат";
     closeBtn.className = "chat-action-btn";
     closeBtn.onclick = (e) => {
       e.stopPropagation();
-      toggleChatClosed(chat.id, !chat.is_closed);
+      
+      // ✅ ИСПРАВЛЕНИЕ: Читаем актуальное состояние из DOM
+      const chatElement = e.target.closest('li');
+      const isCurrentlyClosed = chatElement.classList.contains('closed-chat');
+      
+      console.log(`Chat ${chat.id} currently closed: ${isCurrentlyClosed}, toggling to: ${!isCurrentlyClosed}`);
+      toggleChatClosed(chat.id, !isCurrentlyClosed);
     };
     
     // Кнопка удаления чата
@@ -634,7 +724,6 @@ function createChatListItem(chat) {
     li.appendChild(actions);
   }
   
-  // Всегда делаем flex для единообразия
   li.style.display = "flex";
   li.style.alignItems = "center";
   
@@ -643,6 +732,7 @@ function createChatListItem(chat) {
   console.log("Chat list item created:", li);
   return li;
 }
+
 
 // ==============================
 // WebSocket для сообщений чата
@@ -691,19 +781,20 @@ function initWebSocket() {
         updateMessageText(data.payload.id, data.payload.text);
         break;
         
-      case "MUTED":
-        // data.payload должен содержать { durationMinutes }
-        const duration = data.payload?.durationMinutes || data.durationMinutes;
-        console.log("Mute duration:", duration);
-        handleMute(data.message, duration);
-        break;
-        
-      case "BANNED":
-        // data.payload должен содержать { durationMinutes }
-        const banDuration = data.payload?.durationMinutes || data.durationMinutes;
-        console.log("Ban duration:", banDuration);
-        handleBan(data.message, banDuration);
-        break;
+          case "MUTED":
+      const muteMessage = data.payload?.message || "Вы не можете отправлять сообщения (мут)";
+      const muteDuration = data.payload?.durationMinutes || 0;
+      console.log("Mute duration:", muteDuration);
+      handleMute(muteMessage, muteDuration);
+      break;
+      
+    case "BANNED":
+      const banMessage = data.payload?.message || "Вы были забанены администратором";
+      const banDuration = data.payload?.durationMinutes || 0;
+      console.log("Ban duration:", banDuration);
+      handleBan(banMessage, banDuration);
+      break;
+
         
       default:
         console.log("Unknown Messages WS event:", data.type);
@@ -724,9 +815,18 @@ function handleMute(message, durationMinutes) {
   isMuted = true;
   
   // Устанавливаем время окончания мута
-  if (durationMinutes && durationMinutes > 0) {
+  if (durationMinutes && durationMinutes > 0 && durationMinutes < 999999) {
     muteEndTime = new Date(Date.now() + durationMinutes * 60 * 1000);
     console.log("Mute end time:", muteEndTime);
+    
+    // ✓ СОХРАНЯЕМ В LOCALSTORAGE
+    const muteInfo = {
+      until: muteEndTime.toISOString(),
+      message: message || "Вы не можете отправлять сообщения (мут)",
+      temporary: true
+    };
+    localStorage.setItem("muteInfo", JSON.stringify(muteInfo));
+    
     showMuteNotice(message || "Вы не можете отправлять сообщения (мут)", false, muteEndTime);
     
     // Запускаем таймер обратного отсчёта
@@ -738,6 +838,7 @@ function handleMute(message, durationMinutes) {
   
   disableMessageInput();
 }
+
 
 function startMuteTimer() {
   console.log("Starting mute timer");
@@ -918,10 +1019,14 @@ function enableMessageInput() {
     banTimer = null;
   }
   
+  // ✅ ДОБАВИТЬ: Очищаем localStorage
+  localStorage.removeItem("muteInfo");
+  
   // Удаляем уведомление
   const notice = document.querySelector(".mute-notice");
   if (notice) notice.remove();
 }
+
 
 // ==============================
 // Сообщения
@@ -963,17 +1068,37 @@ async function openChat(chat) {
   // Сохраняем информацию о чате для обработки обновлений
   window.currentChatData = chat;
   
+  // ✅ ДОБАВИТЬ: Проверяем сохраненный мут
+  const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
+  if (muteInfo && muteInfo.until) {
+    const muteUntilDate = new Date(muteInfo.until);
+    if (Date.now() < muteUntilDate.getTime()) {
+      // Мут еще активен
+      console.log("Restoring mute from localStorage:", muteInfo);
+      isMuted = true;
+      muteEndTime = muteUntilDate;
+      showMuteNotice(muteInfo.message || "Вы не можете отправлять сообщения (мут)", false, muteEndTime);
+      startMuteTimer();
+      disableMessageInput();
+    } else {
+      // Мут истек
+      localStorage.removeItem("muteInfo");
+    }
+  }
+  
   // Если чат закрыт и пользователь не админ - показываем уведомление
   if (chat.is_closed && currentUser && currentUser.role !== "admin") {
     showClosedChatNotice();
     disableMessageInput();
-  } else {
+  } else if (!isMuted && !isBanned) {
+    // Разблокируем только если нет мута/бана
     enableMessageInput();
   }
 
   await loadMessages(currentChatId);
   initWebSocket();
 }
+
 
 function showClosedChatNotice() {
   const messagesDiv = getElement("messages");
@@ -1142,12 +1267,13 @@ function updateMessageText(messageId, newText) {
     return;
   }
 
-  const textEl = msg.querySelector(".message-text");
+    const textEl = msg.querySelector(".message-text");
   if (textEl) {
-    console.log("Old text:", textEl.innerText);
-    textEl.innerText = newText;
-    console.log("New text:", textEl.innerText);
+    console.log("Old text:", textEl.textContent);
+    textEl.textContent = newText;
+    console.log("New text:", textEl.textContent);
   }
+
 }
 
 async function sendMessage() {
@@ -1236,6 +1362,8 @@ async function editMessage(messageId) {
 // Управление чатами (для админа)
 // ==============================
 async function toggleChatClosed(chatId, isClosed) {
+  console.log(`toggleChatClosed called: chatId=${chatId}, isClosed=${isClosed}`);
+  
   try {
     const res = await fetch(`${API}/api/admin/chats/${chatId}/close`, {
       method: "PUT",
@@ -1252,12 +1380,15 @@ async function toggleChatClosed(chatId, isClosed) {
       return;
     }
 
-    // Не перезагружаем список - обновление придёт через WebSocket CHAT_UPDATED
+    console.log(`Chat ${chatId} status changed to: ${isClosed ? 'closed' : 'open'}`);
+    
   } catch (err) {
     console.error(err);
     alert("Ошибка подключения к серверу");
   }
 }
+
+
 
 async function deleteChat(chatId) {
   if (!confirm("Вы уверены, что хотите удалить этот чат? Все сообщения будут удалены безвозвратно!")) {
@@ -1400,8 +1531,28 @@ function leaveChat() {
 
   if (!messagesDiv || !chatsDiv || !messageList) return;
 
-  messagesDiv.classList.add("hidden");
-  chatsDiv.classList.remove("hidden");
+  // Добавляем анимацию выхода
+  messagesDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+  messagesDiv.style.opacity = "0";
+  messagesDiv.style.transform = "translateX(20px)";
+  
+  setTimeout(() => {
+    messagesDiv.classList.add("hidden");
+    messagesDiv.style.opacity = "";
+    messagesDiv.style.transform = "";
+    
+    // Анимация появления списка чатов
+    chatsDiv.classList.remove("hidden");
+    chatsDiv.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+    chatsDiv.style.opacity = "0";
+    chatsDiv.style.transform = "translateX(-20px)";
+    
+    setTimeout(() => {
+      chatsDiv.style.opacity = "1";
+      chatsDiv.style.transform = "translateX(0)";
+    }, 10);
+  }, 300);
+  
   currentChatId = null;
   messageList.innerHTML = "";
   
@@ -1409,7 +1560,8 @@ function leaveChat() {
   isBanned = false;
   muteEndTime = null;
   banEndTime = null;
-  
+  window.currentChatData = null;
+
   // Очищаем таймеры
   if (muteTimer) {
     clearInterval(muteTimer);
@@ -1426,19 +1578,38 @@ function leaveChat() {
   }
 }
 
+
 // ==============================
 // Инициализация после загрузки DOM
 // ==============================
 document.addEventListener("DOMContentLoaded", () => {
   // Проверяем токен и загружаем пользователя
-  if (token) {
+    if (token) {
     const userData = localStorage.getItem("user");
     if (userData) {
       currentUser = JSON.parse(userData);
       checkBanStatus();
       
+      // ✓ ПРОВЕРЯЕМ СОХРАНЁННЫЙ МУТ
+      const muteInfo = JSON.parse(localStorage.getItem("muteInfo") || "null");
+      if (muteInfo && muteInfo.until) {
+        const muteUntil = new Date(muteInfo.until);
+        if (Date.now() < muteUntil.getTime()) {
+          // Мут ещё активен
+          isMuted = true;
+          muteEndTime = muteUntil;
+          showMuteNotice(muteInfo.message, false, muteUntil);
+          disableMessageInput();
+          startMuteTimer();
+        } else {
+          // Мут истёк
+          localStorage.removeItem("muteInfo");
+        }
+      }
+      
       // Подключаем WebSocket для списка чатов
       initChatsWS();
+
       
       showChats();
     }

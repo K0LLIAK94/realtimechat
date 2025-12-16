@@ -7,13 +7,19 @@ export const createChat = (name, description, userId) => {
   );
 };
 
-export const getAllChats = () => {
-  return db.all(`
+export const getAllChats = async () => {
+  const chats = await db.all(`
     SELECT id, name, description, is_closed, created_at
     FROM chats
     ORDER BY created_at DESC
   `);
+
+  return chats.map(chat => ({
+    ...chat,
+    created_at: new Date(chat.created_at).toISOString()
+  }));
 };
+
 
 export const setChatClosed = (chatId, isClosed) => {
   return db.run(
